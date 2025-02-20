@@ -1,0 +1,15 @@
+[project]
+name = "distillkit"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "accelerate>=1.4.0",
+    "datasets>=3.3.1",
+    "hf-transfer>=0.1.9",
+    "python-dotenv>=1.0.1",
+    "safetensors>=0.5.2",
+    "transformers>=4.49.0",
+    "trl>=0.15.1",
+]

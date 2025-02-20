@@ -1,13 +1,14 @@
 #!/bin/bash
 
 # Install PyTorch
-pip install torch
+uv add torch
 
 # Install wheel, packaging, and ninja
-pip install wheel packaging ninja
+uv add wheel packaging ninja
 
 # Install flash-attn and deepspeed
-pip install flash-attn deepspeed
+uv add flash-attn deepspeed
 
 # Install requirements from requirements.txt
-pip install -r requirements.txt
+uv pip install -r requirements.txt
+
