@@ -14,18 +14,18 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# model_name = "meta-llama/Llama-3.2-3B-Instruct"
+# model_name = "meta-llama/Llama-3.2-1B-Instruct"
 # tokenizer = AutoTokenizer.from_pretrained(model_name, token=os.getenv("HF_TOKEN"))
 # model = AutoModelForCausalLM.from_pretrained(
 #     model_name, device_map="auto", token=os.getenv("HF_TOKEN")
 # )
 
-model_path = "./results/checkpoint-504"
+model_path = "./results/checkpoint-504-logits"
 config = AutoConfig.from_pretrained(model_path)
 model = AutoModelForCausalLM.from_pretrained(model_path)
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 
-seed_value = 42  # You can choose any number
+seed_value = 42  
 random.seed(seed_value)
 np.random.seed(seed_value)
 torch.manual_seed(seed_value)
@@ -46,39 +46,36 @@ predictions = []
 references = []
 
 try:
-    for i in range(2):
-        if i == 0:
-            continue
-        sample = dataset["train"][i]
-        prompt = (
-            f"You are a biomedical expert. Answer the following biomedical question. Provide a concise, evidence-backed response.\n\n"
-            f"Question: {sample['question']}"
-        )
-        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=512,
-            do_sample=False,  
-            num_beams=1,  
-            temperature=1.0,
-            top_p=1.0,  
-        )
+    sample = dataset["train"][1]
+    prompt = (
+        f"You are a biomedical expert. Provide a concise answer to the following biomedical question.\n\n"
+        f"Question: {sample['question']}"
+    )
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    outputs = model.generate(
+        **inputs,
+        max_new_tokens=512,
+        do_sample=False,  
+        num_beams=1,  
+        temperature=1.0,
+        top_p=1.0,  
+    )
 
-        # skip the prompt tokens
-        prompt_tokens = inputs["input_ids"].shape[-1]
-        generated_response = tokenizer.decode(
-            outputs[0][prompt_tokens:], skip_special_tokens=True
-        )
+    # skip the prompt tokens
+    prompt_tokens = inputs["input_ids"].shape[-1]
+    generated_response = tokenizer.decode(
+        outputs[0][prompt_tokens:], skip_special_tokens=True
+    )
 
-        logger.info(
-            f"\n\nPROMPT: {prompt}\n\n"
-            f"MODEL'S ANSWER: {generated_response}\n\n"
-            f"EXPECTED ANSWER: {sample['long_answer']}\n\n"
-            f"{'-' * 50}"
-        )
+    logger.info(
+        f"\n\nPROMPT: {prompt}\n\n"
+        f"MODEL'S ANSWER: {generated_response}\n\n"
+        f"EXPECTED ANSWER: {sample['long_answer']}\n\n"
+        f"{'-' * 50}"
+    )
 
-        predictions.append(generated_response)
-        references.append(sample["long_answer"])
+    predictions.append(generated_response)
+    references.append(sample["long_answer"])
 
     # rouge_results = rouge.compute(predictions=predictions, references=references)
     # bertscore_results = bertscore.compute(

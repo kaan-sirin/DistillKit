@@ -1,0 +1,4 @@
+[X] Plot losses separately
+[ ] LLM as judge
+[ ] in vs out-of-domain evaluations
+[ ] step-by-step distillation
