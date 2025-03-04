@@ -1,3 +1,4 @@
+import json
 import os
 import torch
 import torch.nn.functional as F
@@ -14,45 +15,8 @@ load_dotenv()
 HF_TOKEN = os.getenv("HF_TOKEN")
 
 # Configuration
-config = {
-    "project_name": "distil-logits",
-    "dataset": {
-        "name": "qiaojin/PubMedQA",
-        "split": "train",
-        "num_samples": 3000,
-        "seed": 42,
-        "subset": "pqa_artificial",
-    },
-    "models": {
-        "teacher": "meta-llama/Llama-3.2-3B-Instruct",
-        "student": "meta-llama/Llama-3.2-1B-Instruct",
-    },
-    "tokenizer": {
-        "max_length": 512,  # TODO: Had to change from 4096 due to memory issues
-        # TODO: Is chat_template necessary for MedQA-SWE?
-        # "chat_template": "{% for message in messages %}{% if loop.first and messages[0]['role'] != 'system' %}{{ '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n' }}{% endif %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{% endif %}"
-    },
-    "training": {
-        "output_dir": "./results",
-        "num_train_epochs": 3,
-        "per_device_train_batch_size": 1,
-        "gradient_accumulation_steps": 8,
-        "save_steps": 1000,
-        "logging_steps": 1,
-        "learning_rate": 2e-5,
-        "weight_decay": 0.05,
-        "warmup_ratio": 0.1,
-        "lr_scheduler_type": "cosine",
-        "resume_from_checkpoint": None,  # Set to a path or True to resume from the latest checkpoint
-        "fp16": False,
-        "bf16": True,
-    },
-    "distillation": {"temperature": 2.0, "alpha": 0.5, "method": "hard_targets"},
-    "model_config": {"use_flash_attention": False},
-    # "spectrum": {
-    #     "layers_to_unfreeze": "/workspace/spectrum/snr_results_Qwen-Qwen2-1.5B_unfrozenparameters_50percent.yaml" # You can pass a spectrum yaml file here to freeze layers identified by spectrum.
-    # }
-}
+with open("config.yaml", "r") as file:
+    config = yaml.safe_load(file)
 
 # Set up environment
 os.environ["WANDB_PROJECT"] = config["project_name"]
@@ -208,15 +172,16 @@ class LogitsTrainer(SFTTrainer):
         else:
             current_lr = self.args.learning_rate
 
-    
-
         for callback in self.callback_handler.callbacks:
             if isinstance(callback, LivePlotCallback):
                 callback.record_metrics(
-                    step = self.state.global_step,
+                    step=self.state.global_step,
                     loss=custom_loss.detach().mean().item(),
                     loss_kd=loss_components["loss_kd"].detach().mean().item(),
-                    original_loss=loss_components["original_loss"].detach().mean().item(),
+                    original_loss=loss_components["original_loss"]
+                    .detach()
+                    .mean()
+                    .item(),
                     learning_rate=current_lr,
                     epoch=self.state.epoch,
                 )
@@ -253,7 +218,6 @@ class LogitsTrainer(SFTTrainer):
 
         elif config["distillation"]["method"] == "hard_targets":
             teacher_predictions = torch.argmax(teacher_logits, dim=-1)
-            
             loss_kd = F.cross_entropy(
                 student_logits.view(
                     -1, student_logits.size(-1)

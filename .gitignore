@@ -2,3 +2,7 @@
 .venv
 models/
 results/
+model_comparison/
+__pycache__/
+
+
