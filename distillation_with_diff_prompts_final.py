@@ -8,8 +8,8 @@ from accelerate import Accelerator
 from dotenv import load_dotenv
 from distillation_utils import LivePlotCallback
 
-torch.set_printoptions(threshold=10_000)  # Large enough threshold
-
+# PAINSTAKINGLY SLOW:   1%|          | 5/420 [23:07<31:59:44, 277.55s/it]  
+# Changing batchsize from 2 to 4                                                                                                                
 
 # ASSUMPTIONS
 # [] a chat template is not needed for this dataset
@@ -83,7 +83,7 @@ student_tokenizer = AutoTokenizer.from_pretrained(
     config["models"]["student"], token=HF_TOKEN
 )
 
-# TODO: DANGEROUS: Is this correct? It complains about pad_token not being set.
+# TODO: DANGEROUS: Is this correct? It complains about pad_token not being set. Even when padding is not set to True in tokenizer.
 # Inspired by https://discuss.huggingface.co/t/how-to-set-the-pad-token-for-meta-llama-llama-3-models/103418/5
 # Answer starting with "I have attempted fine-tuning the LLaMA-3.1-8B..."
 if student_tokenizer.pad_token is None:
@@ -121,41 +121,28 @@ dataset = dataset.map(
 def tokenize_function(examples):
     try:
 
-        tokenized_prompt = student_tokenizer(
+        prompt = student_tokenizer(
             examples["prompt"],
-            truncation=True,
-            max_length=config["tokenizer"]["max_length"],
-            padding="max_length",
             return_attention_mask=True,
         )
+        # <|begin_of_text|>Du är en medicinsk expert. Förklara...
+        # len(prompt["input_ids"]) = 33 (with <|begin_of_text|> token)
+        # len(prompt["attention_mask"]) = 33 (all ones)
 
-        # Tokenize student prompts
-        student_inputs = student_tokenizer(
-            examples["question"],
-            truncation=True,
-            max_length=config["tokenizer"]["max_length"],
-            padding="max_length",
-            return_attention_mask=True,
-        )
-
-        teacher_inputs = student_tokenizer(
+        inputs = student_tokenizer(
             [p + q for p, q in zip(examples["prompt"], examples["question"])],
-            truncation=True,
-            max_length=config["tokenizer"]["max_length"],
-            padding="max_length",
             return_attention_mask=True,
         )
+        # Example: Du är en medicinsk expert. Förklara steg för steg varför alternativ A är korrekt för följande fråga:\n\nAnna, 32 år, söker vård..."
+        # When tokenized: <|begin_of_text|>Du är en medicinsk expert. Förklara steg för steg varför alternativ A är korrekt för följande fråga: Anna, 32 år, söker vård..."
+        # Attention mask all ones
 
         return {
             # Prompt inputs
-            "prompt_input_ids": tokenized_prompt["input_ids"],
-            "prompt_attention_mask": tokenized_prompt["attention_mask"],
-            # Student inputs (only question)
-            "input_ids": student_inputs["input_ids"],
-            "attention_mask": student_inputs["attention_mask"],
-            # Teacher inputs (prompt + question)
-            "teacher_input_ids": teacher_inputs["input_ids"],
-            "teacher_attention_mask": teacher_inputs["attention_mask"],
+            "prompt_input_ids": prompt["input_ids"],
+            "prompt_attention_mask": prompt["attention_mask"],
+            "input_ids": inputs["input_ids"],
+            "attention_mask": inputs["attention_mask"],
         }
 
     except Exception as e:
@@ -202,20 +189,37 @@ class LogitsTrainer(SFTTrainer):
             "attention_mask": inputs["prompt_attention_mask"].to(device),
         }
         # Separate teacher and student inputs
-        student_inputs = {
+        inputs = {
             "input_ids": inputs["input_ids"].to(device),
             "attention_mask": inputs["attention_mask"].to(device),
         }
-        teacher_inputs = {
-            "input_ids": inputs["teacher_input_ids"].to(device),
-            "attention_mask": inputs["teacher_attention_mask"].to(device),
-        }
+        # ============ DEBUGGING ============
+        # A batch of 2 examples, both with the same number of tokens, the shorter one is padded.
+        # Despite me not setting padding='max_length' in the tokenizer.
 
-        teacher_input_tokens = teacher_inputs["input_ids"].shape[-1]
+        print(f"\n\nInputs 0: {len(inputs['input_ids'][0])}")
+        print(
+            f"Student tokenizer: {student_tokenizer.decode(inputs['input_ids'][0])[:100]}"
+        )
+        print(
+            f"Number of zeros in attention mask: {len(inputs['input_ids'][0]) - sum(inputs['attention_mask'][0])}"
+        )
+        print(f"Inputs 1: {len(inputs['input_ids'][1])}")
+        print(
+            f"Student tokenizer: {student_tokenizer.decode(inputs['input_ids'][1])[:100]}"
+        )
+        print(
+            f"Number of zeros in attention mask: {len(inputs['input_ids'][1]) - sum(inputs['attention_mask'][1])}"
+        )
+        # exit()
+        # ============ DEBUGGING ============
+
+        teacher_input_tokens = inputs["input_ids"].shape[-1]
+        print(f"Teacher input tokens: {teacher_input_tokens}")
 
         # Teacher-generated answer
         answers = self.teacher_model.generate(
-            **teacher_inputs,
+            **inputs,
             max_new_tokens=512,
             do_sample=False,
             num_beams=1,
@@ -223,92 +227,141 @@ class LogitsTrainer(SFTTrainer):
             top_p=1.0,
             no_repeat_ngram_size=3,
             repetition_penalty=1.2,
+            return_dict_in_generate=True,
         )
 
-        teacher_generated_tokens = [answer[teacher_input_tokens:] for answer in answers]
-        # for i, answer in enumerate(teacher_generated_tokens):
-        #     print(f"Answer {i} length: {len(answer)}")
-        #     print(f"Answer tokens: {answer}")
+        # ============ DEBUGGING ============
+        print(
+            f"\n\nAnswers: {answers.sequences[0][teacher_input_tokens:].shape}"
+        )  # 512 tokens
+        print(f"Tokens in answer 0: {answers.sequences[0][teacher_input_tokens:]}")
+        print(
+            f"Decoded: {student_tokenizer.decode(answers.sequences[0][teacher_input_tokens:][:100])}"
+        )
+        print(
+            f"\n\nAnswers: {answers.sequences[1][teacher_input_tokens:].shape}"
+        )  # 512 tokens
+        print(f"Tokens in answer 1: {answers.sequences[1][teacher_input_tokens:]}")
+        print(
+            f"Decoded: {student_tokenizer.decode(answers.sequences[1][teacher_input_tokens:][:100])}"
+        )
+        # Sometimes answers are padded with eos_token's (128001) and sometimes not.
+        # exit()
+        # ============ DEBUGGING ============
 
-        # for answer in teacher_generated_tokens:
-        #     decoded = student_tokenizer.decode(
-        #         answer, skip_special_tokens=True
-        #     )
-        #     print(f"First 20 chars: {decoded[:200]}...")
-        #     print(
-        #         f"Last 20 chars: ...{decoded[-200:] if len(decoded) > 200 else decoded}"
-        #     )
+        teacher_outputs = [answer[teacher_input_tokens:] for answer in answers]
 
-        new_input_ids = []
-        new_attention_masks = []
+        # ============ DEBUGGING ============
+        # decoded_example = student_tokenizer.decode(
+        #     teacher_outputs[0], skip_special_tokens=True
+        # )
+        # print(f"Example teacher output, decoded: {decoded_example}")
 
-        for i in range(student_inputs["input_ids"].shape[0]):
-            # Concatenate along dimension 0 for each example
-            new_input_ids.append(
-                torch.cat(
-                    [student_inputs["input_ids"][i], teacher_generated_tokens[i]], dim=0
-                )
+        #  , E) Förstäkringssjukdomen efter att du har fått ett gott svar från behandlingen.
+
+        # Utlagning:
+        # Förklaring:
+        # Induktions-behandlingen är den första behandlingen som ges vid diagnosen av en cancerart. Den syftar dock inte till att eliminera alla cancer celler utan snarare till att minska antalet cancer cellerna så mycket som möjligt. Detta kan vara en kemoterapi eller strålbehandling. Induktions- behandlingen är vanligast hos lymfoma och leukemi men även andra typer av cancer kan behöva denna typ av behandling.
+        # Det är viktigt att notera att induktion inte betyder att det är en underhålsbehandling eftersom dess mål är att minsuka cancer-celltalen istället för att bara hålla dem under kontroll. Dessutom är induktionsbehandlingen inte lika med observation av tillständet innan behandlingsnödvändigheten uppkommer (alternativ B). Induktionshandlingarna kan också inte ses över som en transplantationsbehandling (alternativa C), eftarsom de inte innehåller transplantering av nya stamcellsgrupper. Slutligen är induktionssjukan inte samma sak som en förstärkningsbehandling som ges efter att en god respons på initialbehandling har skett (alternativen A och D).
+        # Alternativ E är rätt eft ersom induktiv behandling ofta ges för att öka effekten av en förskränkande behandling genom att minsuca cancer-celler mer effektivt. En indoktionssjuka kan ge patienten bättre chanser att fullständig remisjon ska kunna uppnas. Alternativ E beskriver alltså den korrekta definitionen av induktiva behandling.
+        # ============ DEBUGGING ============
+
+        # Creating inputs and attention masks for student and teacher
+        # Teacher will be given the prompt + question + answer
+
+        # The output from generate is everything the teacher needs for the forward pass.
+        # print(f"Teacher inputs 0: {answers.sequences[0]}")
+        print(f"\n\nTeacher inputs 0 shape: {answers.sequences[0].shape}")
+        # print(f"Teacher inputs 1: {answers.sequences[1]}")
+        print(f"Teacher inputs 1 shape: {answers.sequences[1].shape}")
+
+        # I assume I can simply add ones to the original attention mask for the teacher inputs.
+        # Sometimes the teacher inputs are padded with eos_token's (128001) and I'm not sure if they need to be masked.
+        teacher_attention_masks_list = []
+        for i, mask in enumerate(inputs["attention_mask"]):
+            # The number of tokens in the generated answer for this example, I think it's always 512 with eventual padding.
+            answer_length = answers.sequences[i][teacher_input_tokens:].shape[0]
+            # Extend the original mask with ones for the answer tokens
+            extended_mask = torch.cat(
+                [mask, torch.ones(answer_length, device=mask.device, dtype=mask.dtype)]
             )
-            new_attention_masks.append(
-                torch.cat(
-                    [
-                        student_inputs["attention_mask"][i],
-                        torch.ones_like(teacher_generated_tokens[i]),
-                    ],
-                    dim=0,
-                )
-            )
+            teacher_attention_masks_list.append(extended_mask)
 
-        student_inputs["input_ids"] = torch.stack(new_input_ids)
-        student_inputs["attention_mask"] = torch.stack(new_attention_masks)
+        # Stack the extended masks to create a batch
+        teacher_attention_mask = torch.stack(teacher_attention_masks_list)
 
-        student_model = model
+        student_input_ids_list = []
+        student_attention_masks_list = []
+        teacher_input_ids_list = []
+        for i, seq in enumerate(answers.sequences):
+            teacher_input_ids_list.append(seq)  # Use the complete sequence from generation
+            # Last token of the CoT prompt should be set to <|begin_of_text|>
+            # I think I can do this by replacing the last token of the prompt with <|begin_of_text|>
+            # I need to get the index of the last token of the prompt first.
+            last_prompt_token_index = len(prompt["input_ids"][i])-1 ## TODO: CONT FROM HERE
+            print(f"\n\nLast prompt token index: {last_prompt_token_index}")
+            print(f"Prompt input at index: {prompt['input_ids'][i][last_prompt_token_index]}: {student_tokenizer.decode(prompt['input_ids'][i][last_prompt_token_index])}")
+            print(f"5 tokens before and after the last prompt token: {prompt['input_ids'][i][last_prompt_token_index-5:last_prompt_token_index+5]}: {student_tokenizer.decode(prompt['input_ids'][i][last_prompt_token_index-5:last_prompt_token_index+5])}")
+            print(f"5 sequence tokens before and after the last prompt token: {seq[last_prompt_token_index-5:last_prompt_token_index+5]}: {student_tokenizer.decode(seq[last_prompt_token_index-5:last_prompt_token_index+5])}")
+            
+            # Set the last prompt token to <|begin_of_text|>, and the attention mask to 0 for the tokens coming before.
+            seq[last_prompt_token_index] = student_tokenizer.bos_token_id
+            print(f"Same sequence tokens after setting the last prompt token to <|begin_of_text|>")
+            print(f"{seq[last_prompt_token_index-5:last_prompt_token_index+5]}: {student_tokenizer.decode(seq[last_prompt_token_index-5:last_prompt_token_index+5])}")
+            student_input_ids_list.append(seq)
+            # Copy the teacher attention mask
+            new_attention_mask = teacher_attention_masks_list[i].clone()
+            new_attention_mask[:last_prompt_token_index] = 0
+            student_attention_masks_list.append(new_attention_mask)
+            print(f"Prompt attention mask after setting prompt tokens to 0 (should be all zeros + 3 ones): {new_attention_mask[:last_prompt_token_index + 3]}")
 
+
+        teacher_input_ids = torch.stack(teacher_input_ids_list)
+        student_input_ids = torch.stack(student_input_ids_list)
+        student_attention_masks = torch.stack(student_attention_masks_list)
+        
+        
+        teacher_inputs = {
+            "input_ids": teacher_input_ids,
+            "attention_mask": teacher_attention_mask,
+        }
+        student_inputs = {
+            "input_ids": student_input_ids,
+            "attention_mask": student_attention_masks,
+        }
+        
+        # Create labels for next-token prediction (shift input_ids right by 1)
+        labels = student_inputs["input_ids"].clone()
+        labels[:, :-1] = labels[:, 1:].clone()
+        labels[:, -1] = -100  # Don't calculate loss for the last token prediction
+        labels[labels == student_tokenizer.pad_token_id] = -100  # Ignore padding tokens
+        student_inputs["labels"] = labels
+
+        
         student_outputs = student_model(**student_inputs)
-        original_loss = student_outputs.loss
-        if not isinstance(original_loss, torch.Tensor):
-            original_loss = torch.tensor(list(original_loss), device=device).mean()
-        print(f"Student outputs loss: {original_loss}")
-
-        new_teacher_input_ids = []
-        new_teacher_attention_masks = []
-
-        for i in range(teacher_inputs["input_ids"].shape[0]):
-            new_teacher_input_ids.append(
-                torch.cat(
-                    [teacher_inputs["input_ids"][i], teacher_generated_tokens[i]], dim=0
-                )
-            )
-
-            # Get the prompt attention mask for this example
-            prompt_attention_mask = prompt["attention_mask"][i]
-            inverse_prompt_mask = 1 - prompt_attention_mask
-            teacher_attention_mask = (
-                teacher_inputs["attention_mask"][i] * inverse_prompt_mask
-            )
-
-            new_teacher_attention_masks.append(
-                torch.cat(
-                    [
-                        teacher_attention_mask,
-                        torch.ones_like(teacher_generated_tokens[i]),
-                    ],
-                    dim=0,
-                )
-            )
-
-        teacher_inputs["input_ids"] = torch.stack(new_teacher_input_ids)
-        teacher_inputs["attention_mask"] = torch.stack(new_teacher_attention_masks)
-
         with torch.no_grad():
             teacher_outputs = teacher_model(**teacher_inputs)
+        
+        # Print the shapes and the first 100 logits of the student and teacher outputs.
+        print(f"\n\nStudent logits shape: {student_outputs.logits.shape}") # torch.Size([2, 1031, 128256])
+        print(f"Teacher logits shape: {teacher_outputs.logits.shape}") # torch.Size([2, 1031, 128256])
+        print(f"Student logits: {student_outputs.logits[0][:100]}")
+        print(f"Teacher logits: {teacher_outputs.logits[0][:100]}")
+        
+        # Multiply both by the attention mask of the *student inputs*
+        student_logits_masked = student_outputs.logits * student_inputs["attention_mask"].unsqueeze(-1)
+        teacher_logits_masked = teacher_outputs.logits * student_inputs["attention_mask"].unsqueeze(-1)
+        print(f"\n\nStudent logits masked: {student_logits_masked[0][:100]}")
+        print(f"Teacher logits masked: {teacher_logits_masked[0][:100]}")
+        
+
 
         # Compute distillation loss
         loss, loss_components = self.distillation_loss(
-            student_outputs.logits,
-            teacher_outputs.logits,
+            student_logits_masked,
+            teacher_logits_masked,
             student_inputs,
-            original_loss,
+            student_outputs.loss,
         )
 
         # Get current learning rate for logging
@@ -324,10 +377,10 @@ class LogitsTrainer(SFTTrainer):
                 callback.record_metrics(
                     step=self.state.global_step,
                     loss=loss.detach().item(),
-                    loss_kd=loss_components["loss_kd"].detach().mean().item(),
+                    loss_kd=loss_components["loss_kd"].detach().item(),
                     learning_rate=current_lr,
                     epoch=self.state.epoch,
-                    original_loss=original_loss,
+                    original_loss=student_outputs.loss.detach().item(),
                     gradient_accumulation_steps=self.args.gradient_accumulation_steps,
                 )
 
