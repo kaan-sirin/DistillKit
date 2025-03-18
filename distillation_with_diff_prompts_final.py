@@ -9,7 +9,13 @@ from dotenv import load_dotenv
 from distillation_utils import LivePlotCallback
 
 # PAINSTAKINGLY SLOW:   1%|          | 5/420 [23:07<31:59:44, 277.55s/it]  
-# Changing batchsize from 2 to 4                                                                                                                
+# Changing batchsize from 1 to 2 
+
+# Got the following error:
+# torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 1.27 GiB. GPU 0 has a total capacity of 47.53 GiB of which 844.06 MiB is free. Including non-PyTorch memory, this process has 46.68 GiB memory in use. Of the allocated memory 41.21 GiB is allocated by PyTorch, and 5.15 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+#   1%|          | 2/210 [14:14<24:41:03, 427.23s/it]   
+
+# Cannot use FlashAttention2 due to CUDA version                                                                                                            
 
 # ASSUMPTIONS
 # [] a chat template is not needed for this dataset
@@ -35,7 +41,7 @@ config = {
     "training": {
         "output_dir": "./results",
         "num_train_epochs": 3,
-        "per_device_train_batch_size": 1,
+        "per_device_train_batch_size": 2,
         "gradient_accumulation_steps": 8,
         "save_steps": 1000,
         "logging_steps": 1,
@@ -49,7 +55,7 @@ config = {
         "remove_unused_columns": False,  # TODO: My additionImportant to keep teacher input columns
     },
     "distillation": {"temperature": 2.0, "alpha": 0.5, "method": "soft_targets"},
-    "model_config": {"use_flash_attention": False},
+    "model_config": {"use_flash_attention": True},
     # "spectrum": {
     #     "layers_to_unfreeze": "/workspace/spectrum/snr_results_Qwen-Qwen2-1.5B_unfrozenparameters_50percent.yaml" # You can pass a spectrum yaml file here to freeze layers identified by spectrum.
     # }
