@@ -183,14 +183,14 @@ class LivePlotCallback(TrainerCallback):
             )
             ax.legend(loc="upper right")
 
-    def record_metrics(self, step, loss, loss_kd, original_loss, learning_rate, epoch):
+    def record_metrics(self, step, loss, loss_kd, original_loss,gradient_accumulation_steps, learning_rate, epoch):
         is_new_step = step != self.current_step
 
         if is_new_step and self.accumulation_count > 0 and self.current_step >= 0:
             self.losses.append(loss)  # Use the trainer's accumulated loss
             self.steps.append(self.current_step)
-            self.loss_kds.append(self.accumulated_loss_kd)
-            self.original_losses.append(self.accumulated_original_loss)
+            self.loss_kds.append(self.accumulated_loss_kd / gradient_accumulation_steps)
+            self.original_losses.append(self.accumulated_original_loss / gradient_accumulation_steps)
             self.learning_rates.append(learning_rate)
             
             # if epoch has changed since last step
@@ -220,7 +220,7 @@ class LivePlotCallback(TrainerCallback):
 
 
     
-    def _add_epoch_lines(self, ax, ymin=0, ymax=1):
+    def _add_epoch_lines(self, ax):
         """Helper method to add vertical lines at epoch boundaries."""
         if not self.epoch_end_steps:
             return
