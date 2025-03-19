@@ -7,6 +7,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
 from accelerate import Accelerator
 from dotenv import load_dotenv
 from distillation_utils import LivePlotCallback
+import time
+import yaml
 
 # PAINSTAKINGLY SLOW:   1%|          | 5/420 [23:07<31:59:44, 277.55s/it]  
 # Changing batchsize from 1 to 2 
@@ -23,43 +25,32 @@ from distillation_utils import LivePlotCallback
 load_dotenv()
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-config = {
-    "project_name": "distil-logits",
-    "dataset": {
-        "name": "nicher92/medqa-swe",
-        "split": "train",
-        "num_samples": 2500,
-        "seed": 42,
-    },
-    "models": {
-        "teacher": "meta-llama/Llama-3.2-3B-Instruct",
-        "student": "meta-llama/Llama-3.2-1B-Instruct",
-    },
-    "tokenizer": {
-        "max_length": 1024,
-    },
-    "training": {
-        "output_dir": "./results",
-        "num_train_epochs": 3,
-        "per_device_train_batch_size": 2,
-        "gradient_accumulation_steps": 8,
-        "save_steps": 1000,
-        "logging_steps": 1,
-        "learning_rate": 2e-5,
-        "weight_decay": 0.05,
-        "warmup_ratio": 0.1,
-        "lr_scheduler_type": "cosine",
-        "resume_from_checkpoint": None,  # Set to a path or True to resume from the latest checkpoint
-        "fp16": False,
-        "bf16": True,
-        "remove_unused_columns": False,  # TODO: My additionImportant to keep teacher input columns
-    },
-    "distillation": {"temperature": 2.0, "alpha": 0.5, "method": "soft_targets"},
-    "model_config": {"use_flash_attention": True},
-    # "spectrum": {
-    #     "layers_to_unfreeze": "/workspace/spectrum/snr_results_Qwen-Qwen2-1.5B_unfrozenparameters_50percent.yaml" # You can pass a spectrum yaml file here to freeze layers identified by spectrum.
-    # }
-}
+def load_config(config_path="config.yaml"):
+    try:
+        with open(config_path, 'r') as file:
+            config = yaml.safe_load(file)
+            config["training"]["learning_rate"] = float(config["training"]["learning_rate"])
+        print(f"Configuration loaded from {config_path}")
+        return config
+    except FileNotFoundError:
+        print(f"Warning: {config_path} not found. Using default configuration.")
+        raise
+    except yaml.YAMLError as e:
+        print(f"Error parsing {config_path}: {e}")
+        raise
+
+# Load configuration from file
+config = load_config()
+
+# Set up output directory
+output_base = config["training"]["output_dir"]
+# get only month and day 
+output_dir = os.path.join(output_base, f"medqa_swe_{time.strftime('%m-%d').replace('-', '_')}")
+
+
+    
+# Create the output directory
+os.makedirs(output_dir, exist_ok=True)
 
 # Set up environment
 os.environ["WANDB_PROJECT"] = config["project_name"]
@@ -89,7 +80,7 @@ student_tokenizer = AutoTokenizer.from_pretrained(
     config["models"]["student"], token=HF_TOKEN
 )
 
-# TODO: DANGEROUS: Is this correct? It complains about pad_token not being set. Even when padding is not set to True in tokenizer.
+# TODO: (DANGEROUS) Is this correct? It complains about pad_token not being set. Even when padding is not set to True in tokenizer.
 # Inspired by https://discuss.huggingface.co/t/how-to-set-the-pad-token-for-meta-llama-llama-3-models/103418/5
 # Answer starting with "I have attempted fine-tuning the LLaMA-3.1-8B..."
 if student_tokenizer.pad_token is None:
@@ -194,7 +185,7 @@ class LogitsTrainer(SFTTrainer):
             "input_ids": inputs["prompt_input_ids"].to(device),
             "attention_mask": inputs["prompt_attention_mask"].to(device),
         }
-        # Separate teacher and student inputs
+
         inputs = {
             "input_ids": inputs["input_ids"].to(device),
             "attention_mask": inputs["attention_mask"].to(device),
@@ -203,30 +194,28 @@ class LogitsTrainer(SFTTrainer):
         # A batch of 2 examples, both with the same number of tokens, the shorter one is padded.
         # Despite me not setting padding='max_length' in the tokenizer.
 
-        print(f"\n\nInputs 0: {len(inputs['input_ids'][0])}")
-        print(
-            f"Student tokenizer: {student_tokenizer.decode(inputs['input_ids'][0])[:100]}"
-        )
-        print(
-            f"Number of zeros in attention mask: {len(inputs['input_ids'][0]) - sum(inputs['attention_mask'][0])}"
-        )
-        print(f"Inputs 1: {len(inputs['input_ids'][1])}")
-        print(
-            f"Student tokenizer: {student_tokenizer.decode(inputs['input_ids'][1])[:100]}"
-        )
-        print(
-            f"Number of zeros in attention mask: {len(inputs['input_ids'][1]) - sum(inputs['attention_mask'][1])}"
-        )
-        # exit()
+        for i in range(len(inputs['input_ids'])):
+            print(f"\n\nLength of input {i} ({i}/{len(inputs['input_ids'])}): {len(inputs['input_ids'][i])}")
+            print(
+                f"First 100 chars of input {i}, decoded: {student_tokenizer.decode(inputs['input_ids'][i])[:100]}..."
+            )
+            num_zeros = len(inputs['input_ids'][i]) - sum(inputs['attention_mask'][i])
+            print(
+                f"Number of zeros in attention mask of input {i}: {num_zeros}"
+            )
+            if num_zeros > 0:
+                print(f"Last {num_zeros + 3} tokens of input {i} (expecting 3 non-padding tokens): {inputs['input_ids'][i][-(num_zeros+3):]}")
         # ============ DEBUGGING ============
 
+        # Get the number of tokens in the teacher input, to exclude them from the answer.
         teacher_input_tokens = inputs["input_ids"].shape[-1]
-        print(f"Teacher input tokens: {teacher_input_tokens}")
+        print(f"\n\nNumber of teacher input tokens (prompt + question): {teacher_input_tokens}")
 
         # Teacher-generated answer
+        MAX_NEW_TOKENS = 512
         answers = self.teacher_model.generate(
             **inputs,
-            max_new_tokens=512,
+            max_new_tokens=MAX_NEW_TOKENS,
             do_sample=False,
             num_beams=1,
             temperature=1.0,
@@ -237,61 +226,47 @@ class LogitsTrainer(SFTTrainer):
         )
 
         # ============ DEBUGGING ============
-        print(
-            f"\n\nAnswers: {answers.sequences[0][teacher_input_tokens:].shape}"
-        )  # 512 tokens
-        print(f"Tokens in answer 0: {answers.sequences[0][teacher_input_tokens:]}")
-        print(
-            f"Decoded: {student_tokenizer.decode(answers.sequences[0][teacher_input_tokens:][:100])}"
-        )
-        print(
-            f"\n\nAnswers: {answers.sequences[1][teacher_input_tokens:].shape}"
-        )  # 512 tokens
-        print(f"Tokens in answer 1: {answers.sequences[1][teacher_input_tokens:]}")
-        print(
-            f"Decoded: {student_tokenizer.decode(answers.sequences[1][teacher_input_tokens:][:100])}"
-        )
+        for i in range(len(answers.sequences)):
+            print(
+                f"\n\nShape of the {i}th answer: {answers.sequences[i][teacher_input_tokens:].shape}"
+            )  # 512 tokens
+            # print(f"Tokens in answer {i}: {answers.sequences[i][teacher_input_tokens:]}")
+            print(
+                f"First 100 chars of answer {i}, decoded: {student_tokenizer.decode(answers.sequences[i][teacher_input_tokens:][:100])}..."
+            )
         # Sometimes answers are padded with eos_token's (128001) and sometimes not.
         # exit()
         # ============ DEBUGGING ============
 
         teacher_outputs = [answer[teacher_input_tokens:] for answer in answers]
 
-        # ============ DEBUGGING ============
-        # decoded_example = student_tokenizer.decode(
-        #     teacher_outputs[0], skip_special_tokens=True
-        # )
-        # print(f"Example teacher output, decoded: {decoded_example}")
-
-        #  , E) Förstäkringssjukdomen efter att du har fått ett gott svar från behandlingen.
-
-        # Utlagning:
-        # Förklaring:
-        # Induktions-behandlingen är den första behandlingen som ges vid diagnosen av en cancerart. Den syftar dock inte till att eliminera alla cancer celler utan snarare till att minska antalet cancer cellerna så mycket som möjligt. Detta kan vara en kemoterapi eller strålbehandling. Induktions- behandlingen är vanligast hos lymfoma och leukemi men även andra typer av cancer kan behöva denna typ av behandling.
-        # Det är viktigt att notera att induktion inte betyder att det är en underhålsbehandling eftersom dess mål är att minsuka cancer-celltalen istället för att bara hålla dem under kontroll. Dessutom är induktionsbehandlingen inte lika med observation av tillständet innan behandlingsnödvändigheten uppkommer (alternativ B). Induktionshandlingarna kan också inte ses över som en transplantationsbehandling (alternativa C), eftarsom de inte innehåller transplantering av nya stamcellsgrupper. Slutligen är induktionssjukan inte samma sak som en förstärkningsbehandling som ges efter att en god respons på initialbehandling har skett (alternativen A och D).
-        # Alternativ E är rätt eft ersom induktiv behandling ofta ges för att öka effekten av en förskränkande behandling genom att minsuca cancer-celler mer effektivt. En indoktionssjuka kan ge patienten bättre chanser att fullständig remisjon ska kunna uppnas. Alternativ E beskriver alltså den korrekta definitionen av induktiva behandling.
-        # ============ DEBUGGING ============
-
         # Creating inputs and attention masks for student and teacher
         # Teacher will be given the prompt + question + answer
 
         # The output from generate is everything the teacher needs for the forward pass.
         # print(f"Teacher inputs 0: {answers.sequences[0]}")
-        print(f"\n\nTeacher inputs 0 shape: {answers.sequences[0].shape}")
-        # print(f"Teacher inputs 1: {answers.sequences[1]}")
-        print(f"Teacher inputs 1 shape: {answers.sequences[1].shape}")
+        for i in range(len(answers.sequences)):
+            # print(f"\n\nTeacher input tokens {i+1} ({i+1}/{len(answers.sequences)}): {answers.sequences[i]}")
+            print(f"\n\nTeacher inputs {i+1} shape ({i+1}/{len(answers.sequences)}): {answers.sequences[i].shape}")
+            print(f"Teacher inputs {i+1} decoded, first 100 chars ({i+1}/{len(answers.sequences)}): {student_tokenizer.decode(answers.sequences[i])[:100]}...")
 
         # I assume I can simply add ones to the original attention mask for the teacher inputs.
-        # Sometimes the teacher inputs are padded with eos_token's (128001) and I'm not sure if they need to be masked.
+        # TODO: Sometimes the teacher inputs are padded with eos_token's (128001) and I'm not sure if they need to be masked.
         teacher_attention_masks_list = []
+        # Make sure the number of output sequences is the same as the number of attention masks.
+        if len(answers.sequences) != len(inputs["attention_mask"]):
+            raise ValueError(f"Number of output sequences ({len(answers.sequences)}) is not the same as the number of attention masks ({len(inputs['attention_mask'])})")
+        print()
         for i, mask in enumerate(inputs["attention_mask"]):
-            # The number of tokens in the generated answer for this example, I think it's always 512 with eventual padding.
+            # The number of tokens in the generated answer for this example, I think it's always 512 (MAX_NEW_TOKENS) with eventual padding.
             answer_length = answers.sequences[i][teacher_input_tokens:].shape[0]
+            print(f"Answer length of example {i+1} (expected {MAX_NEW_TOKENS}): {answer_length}")
             # Extend the original mask with ones for the answer tokens
             extended_mask = torch.cat(
                 [mask, torch.ones(answer_length, device=mask.device, dtype=mask.dtype)]
             )
             teacher_attention_masks_list.append(extended_mask)
+            print(f"The length of the extended mask for example {i+1} is {len(extended_mask)}")
 
         # Stack the extended masks to create a batch
         teacher_attention_mask = torch.stack(teacher_attention_masks_list)
@@ -300,15 +275,16 @@ class LogitsTrainer(SFTTrainer):
         student_attention_masks_list = []
         teacher_input_ids_list = []
         for i, seq in enumerate(answers.sequences):
+            print(f"\n\n---------> Example {i+1} of {len(answers.sequences)}")
             teacher_input_ids_list.append(seq)  # Use the complete sequence from generation
-            # Last token of the CoT prompt should be set to <|begin_of_text|>
-            # I think I can do this by replacing the last token of the prompt with <|begin_of_text|>
+            # For student, I believe the last token of the CoT prompt should be set to <|begin_of_text|>
+            # Here I'm simply replacing the last token of the prompt with <|begin_of_text|>
             # I need to get the index of the last token of the prompt first.
-            last_prompt_token_index = len(prompt["input_ids"][i])-1 ## TODO: CONT FROM HERE
+            last_prompt_token_index = len(prompt["input_ids"][i])-1 
             print(f"\n\nLast prompt token index: {last_prompt_token_index}")
-            print(f"Prompt input at index: {prompt['input_ids'][i][last_prompt_token_index]}: {student_tokenizer.decode(prompt['input_ids'][i][last_prompt_token_index])}")
-            print(f"5 tokens before and after the last prompt token: {prompt['input_ids'][i][last_prompt_token_index-5:last_prompt_token_index+5]}: {student_tokenizer.decode(prompt['input_ids'][i][last_prompt_token_index-5:last_prompt_token_index+5])}")
-            print(f"5 sequence tokens before and after the last prompt token: {seq[last_prompt_token_index-5:last_prompt_token_index+5]}: {student_tokenizer.decode(seq[last_prompt_token_index-5:last_prompt_token_index+5])}")
+            print(f"Prompt token at index is {prompt['input_ids'][i][last_prompt_token_index]} which corresponds to '{student_tokenizer.decode(prompt['input_ids'][i][last_prompt_token_index])}' (expecting a colon)")
+            print(f"5 tokens before and after the last prompt token: {prompt['input_ids'][i][last_prompt_token_index-5:last_prompt_token_index+6]}: {student_tokenizer.decode(prompt['input_ids'][i][last_prompt_token_index-5:last_prompt_token_index+6])}")
+            print(f"5 sequence tokens before and after the last prompt token: {seq[last_prompt_token_index-5:last_prompt_token_index+6]}: {student_tokenizer.decode(seq[last_prompt_token_index-5:last_prompt_token_index+6])}")
             
             # Set the last prompt token to <|begin_of_text|>, and the attention mask to 0 for the tokens coming before.
             seq[last_prompt_token_index] = student_tokenizer.bos_token_id
@@ -318,8 +294,8 @@ class LogitsTrainer(SFTTrainer):
             # Copy the teacher attention mask
             new_attention_mask = teacher_attention_masks_list[i].clone()
             new_attention_mask[:last_prompt_token_index] = 0
+            print(f"Student's attention mask after setting prompt tokens to 0 (should be all zeros + 3 ones): {new_attention_mask[:last_prompt_token_index + 3]}")
             student_attention_masks_list.append(new_attention_mask)
-            print(f"Prompt attention mask after setting prompt tokens to 0 (should be all zeros + 3 ones): {new_attention_mask[:last_prompt_token_index + 3]}")
 
 
         teacher_input_ids = torch.stack(teacher_input_ids_list)
@@ -336,7 +312,9 @@ class LogitsTrainer(SFTTrainer):
             "attention_mask": student_attention_masks,
         }
         
+        # Labels are necessary for the cross entropy loss (student_outputs.loss)
         # Create labels for next-token prediction (shift input_ids right by 1)
+        # -100 is the default ignore_index in PyTorch’s CrossEntropyLoss. So, any token with a label of -100 will be ignored in loss computation. [https://discuss.huggingface.co/t/will-trainer-loss-functions-automatically-ignore-100/36134]
         labels = student_inputs["input_ids"].clone()
         labels[:, :-1] = labels[:, 1:].clone()
         labels[:, -1] = -100  # Don't calculate loss for the last token prediction
@@ -349,19 +327,19 @@ class LogitsTrainer(SFTTrainer):
             teacher_outputs = teacher_model(**teacher_inputs)
         
         # Print the shapes and the first 100 logits of the student and teacher outputs.
-        print(f"\n\nStudent logits shape: {student_outputs.logits.shape}") # torch.Size([2, 1031, 128256])
-        print(f"Teacher logits shape: {teacher_outputs.logits.shape}") # torch.Size([2, 1031, 128256])
+        print(f"\n\nStudent logits shape: {student_outputs.logits.shape}")
+        print(f"Teacher logits shape: {teacher_outputs.logits.shape}")
         print(f"Student logits: {student_outputs.logits[0][:100]}")
         print(f"Teacher logits: {teacher_outputs.logits[0][:100]}")
         
-        # Multiply both by the attention mask of the *student inputs*
+        # Multiply both by the attention mask of the *student inputs* before the KLD computation.
+        # This is to ensure that the KLD computation is only done for the tokens that the student has attended to.
         student_logits_masked = student_outputs.logits * student_inputs["attention_mask"].unsqueeze(-1)
         teacher_logits_masked = teacher_outputs.logits * student_inputs["attention_mask"].unsqueeze(-1)
-        print(f"\n\nStudent logits masked: {student_logits_masked[0][:100]}")
+        print(f"Student logits masked: {student_logits_masked[0][:100]}")
         print(f"Teacher logits masked: {teacher_logits_masked[0][:100]}")
         
-
-
+        
         # Compute distillation loss
         loss, loss_components = self.distillation_loss(
             student_logits_masked,
@@ -399,6 +377,7 @@ class LogitsTrainer(SFTTrainer):
         student_logits_scaled = student_logits / config["distillation"]["temperature"]
         teacher_logits_scaled = teacher_logits / config["distillation"]["temperature"]
 
+        # https://pytorch.org/docs/stable/generated/torch.nn.KLDivLoss.html
         loss_kd = (
             F.kl_div(
                 F.log_softmax(student_logits_scaled, dim=-1),
@@ -418,7 +397,7 @@ class LogitsTrainer(SFTTrainer):
 
 
 live_plot_callback = LivePlotCallback(
-    plot_path=os.path.join(config["training"]["output_dir"], "training_loss.png"),
+    plot_path= output_dir + "/training_loss.png",
     update_freq=1,
     moving_avg_window=10,
     distillation_method=config["distillation"]["method"],
@@ -447,16 +426,7 @@ trainer = accelerator.prepare(trainer)
 # Train the model
 trainer.train(resume_from_checkpoint=config["training"]["resume_from_checkpoint"])
 
-# Save the final model with appropriate naming
-output_base = config["training"]["output_dir"]
-output_dir = os.path.join(output_base, "medqa_swe_cot_distilled")
 
-# Increment directory name if it exists
-counter = 1
-original_output_dir = output_dir
-while os.path.exists(output_dir):
-    output_dir = f"{original_output_dir}_{counter}"
-    counter += 1
 
 trainer.save_model(output_dir)
 print(f"Model saved to {output_dir}")
