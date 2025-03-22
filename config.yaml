@@ -32,6 +32,8 @@ distillation:
   temperature: 2.0
   alpha: 0.5
   method: soft_targets
+  top_k_percent: 1  # Keep top 1% of logits
+  teacher_outputs_path: ./results/teacher_outputs_03_22_22_16
 model_config:
   use_flash_attention: false
 # spectrum:

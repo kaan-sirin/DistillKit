@@ -23,8 +23,6 @@ import yaml
 # ASSUMPTIONS
 # [] a chat template is not needed for this dataset
 
-load_dotenv()
-HF_TOKEN = os.getenv("HF_TOKEN")
 
 def load_config(config_path="config.yaml"):
     try:
@@ -43,55 +41,6 @@ def load_config(config_path="config.yaml"):
         raise
 
 
-# Load configuration from file
-config = load_config()
-
-# Set up output directory
-output_base = config["training"]["output_dir"]
-# month, day, hour, minute
-output_dir = os.path.join(
-    output_base, f"medqa_swe_{time.strftime('%m-%d_%H-%M').replace('-', '_')}"
-)
-
-
-# Create the output directory
-os.makedirs(output_dir, exist_ok=True)
-
-# Set up environment
-os.environ["WANDB_PROJECT"] = config["project_name"]
-accelerator = Accelerator()
-device = accelerator.device
-
-
-# Load and preprocess dataset
-dataset = (
-    load_dataset(
-        config["dataset"]["name"],
-        config["dataset"]["subset"],
-        split=config["dataset"]["split"],
-    )
-    if config["dataset"].get("subset")
-    else load_dataset(config["dataset"]["name"], split=config["dataset"]["split"])
-)
-
-# First take a subset of the dataset if specified, then shuffle
-if "num_samples" in config["dataset"]:
-    dataset = dataset.select(range(config["dataset"]["num_samples"]))
-dataset = dataset.shuffle(seed=config["dataset"]["seed"])
-
-# Load tokenizers
-
-student_tokenizer = AutoTokenizer.from_pretrained(
-    config["models"]["student"], token=HF_TOKEN
-)
-
-# TODO: (DANGEROUS) Is this correct? It complains about pad_token not being set. Even when padding is not set to True in tokenizer.
-# Inspired by https://discuss.huggingface.co/t/how-to-set-the-pad-token-for-meta-llama-llama-3-models/103418/5
-# Answer starting with "I have attempted fine-tuning the LLaMA-3.1-8B..."
-if student_tokenizer.pad_token is None:
-    student_tokenizer.pad_token = "<|finetune_right_pad_id|>"
-
-
 def medqa_format(sample):
     try:
         prompt = (
@@ -99,7 +48,6 @@ def medqa_format(sample):
             "Din uppgift är att **steg för steg** förklara varför alternativ "
             f"{sample['answer']} är det korrekta svaret på följande fråga:\n\n"
         )
-
 
         question = f"{sample['question']}\n\n" f"{sample['options']}\n\n" f"Svar: "
 
@@ -113,19 +61,9 @@ def medqa_format(sample):
         raise
 
 
-# Preprocess and tokenize the dataset
-print("Preprocessing and tokenizing dataset...")
-original_columns = dataset.column_names
-dataset = dataset.map(
-    medqa_format,
-    remove_columns=original_columns,
-)
-
-
-def tokenize_function(examples):
+def tokenize_function(examples, tokenizer):
     try:
-
-        prompt = student_tokenizer(
+        prompt = tokenizer(
             examples["prompt"],
             return_attention_mask=True,
         )
@@ -133,7 +71,7 @@ def tokenize_function(examples):
         # len(prompt["input_ids"]) = 33 (with <|begin_of_text|> token)
         # len(prompt["attention_mask"]) = 33 (all ones)
 
-        inputs = student_tokenizer(
+        inputs = tokenizer(
             [p + q for p, q in zip(examples["prompt"], examples["question"])],
             return_attention_mask=True,
         )
@@ -160,34 +98,24 @@ def tokenize_function(examples):
         raise
 
 
-tokenized_dataset = dataset.map(
-    tokenize_function,
-    batched=True,
-    num_proc=8,
-    remove_columns=["question", "prompt"],
-)
-
-tokenized_dataset = tokenized_dataset.train_test_split(test_size=0.1)
-
-print("Dataset preparation complete. Loading models...")
-
-# Load models with configurable flash attention
-model_kwargs = {"torch_dtype": torch.bfloat16}
-if config["model_config"]["use_flash_attention"]:
-    model_kwargs["attn_implementation"] = "flash_attention_2"
-
-teacher_model = AutoModelForCausalLM.from_pretrained(
-    config["models"]["teacher"], **model_kwargs
-).to(device)
-student_model = AutoModelForCausalLM.from_pretrained(
-    config["models"]["student"], **model_kwargs
-)
-
-
-class LogitsTrainer(SFTTrainer):
+class LogitsTrainer(SFTTrainer):        
     def compute_loss(
-        self, model, inputs, return_outputs=False, num_items_in_batch=None
+        self,
+        model,
+        inputs,
+        return_outputs=False,
+        num_items_in_batch=None,
     ):
+        if hasattr(model, "device"):
+            device = model.device
+        else:
+            # For DataParallel models, use the device of the module inside
+            device = (
+                model.module.device
+                if hasattr(model, "module")
+                else torch.device("cuda")
+            )
+
         prompt = {
             "input_ids": inputs["prompt_input_ids"].to(device),
             "attention_mask": inputs["prompt_attention_mask"].to(device),
@@ -206,7 +134,7 @@ class LogitsTrainer(SFTTrainer):
                 f"\n\nLength of input {i+1} ({i+1}/{len(inputs['input_ids'])}): {len(inputs['input_ids'][i])}"
             )
             print(
-                f"First 100 chars of input {i+1}, decoded: {student_tokenizer.decode(inputs['input_ids'][i])[:100]}..."
+                f"First 100 chars of input {i+1}, decoded: {self.tokenizer.decode(inputs['input_ids'][i])[:100]}..."
             )
             num_zeros = len(inputs["input_ids"][i]) - sum(inputs["attention_mask"][i])
             print(f"Number of zeros in attention mask of input {i+1}: {num_zeros}")
@@ -247,7 +175,7 @@ class LogitsTrainer(SFTTrainer):
             #     f"First 100 chars of answer {i}, decoded: {student_tokenizer.decode(answers.sequences[i][teacher_input_tokens:][:100])}..."
             # )
             print(
-                f"Answer {i+1}, decoded: {student_tokenizer.decode(answers.sequences[i][teacher_input_tokens:])}"
+                f"Answer {i+1}, decoded: {self.tokenizer.decode(answers.sequences[i][teacher_input_tokens:])}"
             )
         # Sometimes answers are padded with eos_token's (128001) and sometimes not.
         # exit()
@@ -266,7 +194,7 @@ class LogitsTrainer(SFTTrainer):
                 f"\n\nTeacher inputs {i+1} shape ({i+1}/{len(answers.sequences)}): {answers.sequences[i].shape}"
             )
             print(
-                f"Teacher inputs {i+1} decoded, first 100 chars ({i+1}/{len(answers.sequences)}): {student_tokenizer.decode(answers.sequences[i])[:100]}..."
+                f"Teacher inputs {i+1} decoded, first 100 chars ({i+1}/{len(answers.sequences)}): {self.tokenizer.decode(answers.sequences[i])[:100]}..."
             )
 
         # I assume I can simply add ones to the original attention mask for the teacher inputs.
@@ -310,22 +238,22 @@ class LogitsTrainer(SFTTrainer):
             last_prompt_token_index = len(prompt["input_ids"][i]) - 1
             print(f"\n\nLast prompt token index: {last_prompt_token_index}")
             print(
-                f"Prompt token at index is {prompt['input_ids'][i][last_prompt_token_index]} which corresponds to '{student_tokenizer.decode(prompt['input_ids'][i][last_prompt_token_index])}' (expecting a colon)"
+                f"Prompt token at index is {prompt['input_ids'][i][last_prompt_token_index]} which corresponds to '{self.tokenizer.decode(prompt['input_ids'][i][last_prompt_token_index])}' (expecting a colon)"
             )
             print(
-                f"5 tokens before and after the last prompt token: {prompt['input_ids'][i][last_prompt_token_index-5:last_prompt_token_index+6]}: {student_tokenizer.decode(prompt['input_ids'][i][last_prompt_token_index-5:last_prompt_token_index+6])}"
+                f"5 tokens before and after the last prompt token: {prompt['input_ids'][i][last_prompt_token_index-5:last_prompt_token_index+6]}: {self.tokenizer.decode(prompt['input_ids'][i][last_prompt_token_index-5:last_prompt_token_index+6])}"
             )
             print(
-                f"5 sequence tokens before and after the last prompt token: {seq[last_prompt_token_index-5:last_prompt_token_index+6]}: {student_tokenizer.decode(seq[last_prompt_token_index-5:last_prompt_token_index+6])}"
+                f"5 sequence tokens before and after the last prompt token: {seq[last_prompt_token_index-5:last_prompt_token_index+6]}: {self.tokenizer.decode(seq[last_prompt_token_index-5:last_prompt_token_index+6])}"
             )
 
             # Set the last prompt token to <|begin_of_text|>, and the attention mask to 0 for the tokens coming before.
-            seq[last_prompt_token_index] = student_tokenizer.bos_token_id
+            seq[last_prompt_token_index] = self.tokenizer.bos_token_id
             print(
                 f"Same sequence tokens after setting the last prompt token to <|begin_of_text|>"
             )
             print(
-                f"{seq[last_prompt_token_index-5:last_prompt_token_index+5]}: {student_tokenizer.decode(seq[last_prompt_token_index-5:last_prompt_token_index+5])}"
+                f"{seq[last_prompt_token_index-5:last_prompt_token_index+5]}: {self.tokenizer.decode(seq[last_prompt_token_index-5:last_prompt_token_index+5])}"
             )
             student_input_ids_list.append(seq)
             # Copy the teacher attention mask
@@ -351,16 +279,16 @@ class LogitsTrainer(SFTTrainer):
 
         # Labels are necessary for the cross entropy loss (student_outputs.loss)
         # Create labels for next-token prediction (shift input_ids right by 1)
-        # -100 is the default ignore_index in PyTorch’s CrossEntropyLoss. So, any token with a label of -100 will be ignored in loss computation. [https://discuss.huggingface.co/t/will-trainer-loss-functions-automatically-ignore-100/36134]
+        # -100 is the default ignore_index in PyTorch's CrossEntropyLoss. So, any token with a label of -100 will be ignored in loss computation. [https://discuss.huggingface.co/t/will-trainer-loss-functions-automatically-ignore-100/36134]
         labels = student_inputs["input_ids"].clone()
         labels[:, :-1] = labels[:, 1:].clone()
         labels[:, -1] = -100  # Don't calculate loss for the last token prediction
-        labels[labels == student_tokenizer.pad_token_id] = -100  # Ignore padding tokens
+        labels[labels == self.tokenizer.pad_token_id] = -100  # Ignore padding tokens
         student_inputs["labels"] = labels
 
-        student_outputs = student_model(**student_inputs)
+        student_outputs = self.model(**student_inputs)
         with torch.no_grad():
-            teacher_outputs = teacher_model(**teacher_inputs)
+            teacher_outputs = self.teacher_model(**teacher_inputs)
 
         # Print the shapes and the first 100 logits of the student and teacher outputs.
         print(f"\n\nStudent logits shape: {student_outputs.logits.shape}")
@@ -414,8 +342,8 @@ class LogitsTrainer(SFTTrainer):
         self, student_logits, teacher_logits, student_inputs, original_loss
     ):
 
-        student_logits_scaled = student_logits / config["distillation"]["temperature"]
-        teacher_logits_scaled = teacher_logits / config["distillation"]["temperature"]
+        student_logits_scaled = student_logits / self.config["distillation"]["temperature"]
+        teacher_logits_scaled = teacher_logits / self.config["distillation"]["temperature"]
 
         # https://pytorch.org/docs/stable/generated/torch.nn.KLDivLoss.html
         loss_kd = (
@@ -424,48 +352,148 @@ class LogitsTrainer(SFTTrainer):
                 F.softmax(teacher_logits_scaled, dim=-1),
                 reduction="batchmean",
             )
-            * (config["distillation"]["temperature"] ** 2)
-            / config["tokenizer"]["max_length"]
+            * (self.config["distillation"]["temperature"] ** 2)
+            / self.config["tokenizer"]["max_length"]
         )
 
         total_loss = (
-            config["distillation"]["alpha"] * loss_kd
-            + (1 - config["distillation"]["alpha"]) * original_loss
+            self.config["distillation"]["alpha"] * loss_kd
+            + (1 - self.config["distillation"]["alpha"]) * original_loss
         )
 
         return total_loss, {"loss_kd": loss_kd, "original_loss": original_loss}
 
 
-live_plot_callback = LivePlotCallback(
-    plot_path=output_dir + "/training_loss.png",
-    update_freq=1,
-    moving_avg_window=10,
-    distillation_method=config["distillation"]["method"],
-)
-
-training_arguments = TrainingArguments(
-    **config["training"],
-)
-
-# Create the custom SFT Trainer
-trainer = LogitsTrainer(
-    model=student_model,
-    train_dataset=tokenized_dataset["train"],
-    eval_dataset=tokenized_dataset["test"],
-    tokenizer=student_tokenizer,
-    args=training_arguments,
-    callbacks=[live_plot_callback],
-)
-
-# Add the teacher model to the trainer
-trainer.teacher_model = teacher_model
-
-# Prepare for distributed training
-trainer = accelerator.prepare(trainer)
-
-# Train the model
-trainer.train(resume_from_checkpoint=config["training"]["resume_from_checkpoint"])
+def load_teacher_outputs(output_path):
+    # Load the pre-generated teacher outputs (tokens, logits, shuffled indices)
+    tokens_file = os.path.join(output_path, "generated_tokens.pt")
+    logits_file = os.path.join(output_path, "sparse_logits.pt")
+    indices_file = os.path.join(output_path, "indices.pt")
+    
+    print(f"Loading teacher outputs from {output_path}")
+    token_tensors = torch.load(tokens_file)
+    sparse_logit_tensors = torch.load(logits_file)
+    shuffled_indices = torch.load(indices_file)
+    
+    print(f"Loaded {len(token_tensors)} teacher outputs")
+    print(f"First 10 shuffled indices: {shuffled_indices[:10]}")
+    
+    return token_tensors, sparse_logit_tensors, shuffled_indices
 
 
-trainer.save_model(output_dir)
-print(f"Model saved to {output_dir}")
+def main():
+    load_dotenv()
+    HF_TOKEN = os.getenv("HF_TOKEN")
+
+    # Load configuration from file
+    config = load_config()
+
+    # Set up output directory
+    output_base = config["training"]["output_dir"]
+    # month, day, hour, minute
+    output_dir = os.path.join(
+        output_base, f"medqa_swe_{time.strftime('%m-%d_%H-%M').replace('-', '_')}"
+    )
+    # Create the output directory
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Set up environment
+    os.environ["WANDB_PROJECT"] = config["project_name"]
+    accelerator = Accelerator()
+    device = accelerator.device
+
+    # Load and preprocess dataset
+    dataset = (
+        load_dataset(
+            config["dataset"]["name"],
+            config["dataset"]["subset"],
+            split=config["dataset"]["split"],
+        )
+        if config["dataset"].get("subset")
+        else load_dataset(config["dataset"]["name"], split=config["dataset"]["split"])
+    )
+
+    # First take a subset of the dataset if specified, then shuffle
+    if "num_samples" in config["dataset"]:
+        dataset = dataset.select(range(config["dataset"]["num_samples"]))
+    dataset = dataset.shuffle(seed=config["dataset"]["seed"])
+
+    # Load tokenizers
+    student_tokenizer = AutoTokenizer.from_pretrained(
+        config["models"]["student"], token=HF_TOKEN
+    )
+
+    # TODO: (DANGEROUS) Is this correct? It complains about pad_token not being set. Even when padding is not set to True in tokenizer.
+    # Inspired by https://discuss.huggingface.co/t/how-to-set-the-pad-token-for-meta-llama-llama-3-models/103418/5
+    # Answer starting with "I have attempted fine-tuning the LLaMA-3.1-8B..."
+    if student_tokenizer.pad_token is None:
+        student_tokenizer.pad_token = "<|finetune_right_pad_id|>"
+
+    # Preprocess and tokenize the dataset
+    print("Preprocessing and tokenizing dataset...")
+    original_columns = dataset.column_names
+    dataset = dataset.map(
+        medqa_format,
+        remove_columns=original_columns,
+    )
+
+    tokenized_dataset = dataset.map(
+        lambda examples: tokenize_function(examples, student_tokenizer),
+        batched=True,
+        num_proc=8,
+        remove_columns=["question", "prompt"],
+    )
+
+    tokenized_dataset = tokenized_dataset.train_test_split(test_size=0.1)
+
+    print("Dataset preparation complete. Loading models...")
+
+    # Load models with configurable flash attention
+    model_kwargs = {"torch_dtype": torch.bfloat16}
+    if config["model_config"]["use_flash_attention"]:
+        model_kwargs["attn_implementation"] = "flash_attention_2"
+
+    teacher_model = AutoModelForCausalLM.from_pretrained(
+        config["models"]["teacher"], **model_kwargs
+    ).to(device)
+    student_model = AutoModelForCausalLM.from_pretrained(
+        config["models"]["student"], **model_kwargs
+    )
+
+    live_plot_callback = LivePlotCallback(
+        plot_path=output_dir + "/training_loss.png",
+        update_freq=1,
+        moving_avg_window=10,
+        distillation_method=config["distillation"]["method"],
+    )
+
+    training_arguments = TrainingArguments(
+        **config["training"],
+    )
+
+    # Create the custom SFT Trainer
+    trainer = LogitsTrainer(
+        model=student_model,
+        train_dataset=tokenized_dataset["train"],
+        eval_dataset=tokenized_dataset["test"],
+        args=training_arguments,
+        callbacks=[live_plot_callback],
+    )
+
+    # Add the teacher model to the trainer
+    trainer.teacher_model = teacher_model
+    trainer.tokenizer = student_tokenizer
+    trainer.config = config
+
+    # Prepare for distributed training
+    trainer = accelerator.prepare(trainer)
+
+    # Train the model
+    trainer.train(resume_from_checkpoint=config["training"]["resume_from_checkpoint"])
+
+    trainer.save_model(output_dir)
+    print(f"Model saved to {output_dir}")
+
+
+if __name__ == "__main__":
+    main()
