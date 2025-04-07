@@ -1,0 +1,49 @@
+comparison:
+  name: reasoning_math_30_samples_3B_vs_1B
+  max_new_tokens: 512
+  models:
+    model_1:
+      name: meta-llama/Llama-3.2-3B-Instruct
+    model_2:
+      name: meta-llama/Llama-3.2-1B-Instruct
+
+
+
+dataset:
+  name: openai/gsm8k
+  subset: main
+  split: test
+  seed: 42  
+  num_samples: 30
+  start_index: 100
+  random_sample: false
+
+
+# DATASETS
+  # name: ucinlp/drop
+  # split: train
+  # seed: 42  
+  # num_samples: 4
+  # start_index: 0
+  # random_sample: true
+
+  # name: kaans/swefaq
+  # split: train
+  # seed: 42  
+  # num_samples: 30
+  # start_index: 0
+  # random_sample: false
+
+
+
+# Model names
+# meta-llama/Llama-3.2-3B-Instruct
+# meta-llama/Llama-3.2-1B-Instruct
+# distill_hidden_medqa_swe_with_responses_3000samples_3_epochs_04_01_23_13
+# distill_hidden_medqa_swe_with_responses_300samples_3epochs_03_31_22_12
+# distill_MedLFQA_3000samples_3epochs_04_02_13_15
+# distill_medqa_swe_with_responses_3000samples_3epochs_03_28_17_14
+# distill_medqa_swe_with_responses_300samples_3epochs_03_28_14_00
+# distill_medqa_swe_with_responses_300samples_3epochs_03_31_14_17
+# sft_medqa_swe_with_responses_3000samples_3epochs_03_28_22_04
+# sft_medqa_swe_with_responses_300_3_03_31_14_19
