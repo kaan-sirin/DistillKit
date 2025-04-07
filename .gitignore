@@ -4,5 +4,12 @@ models/
 results/
 model_comparison/
 __pycache__/
-
-
+OLD_ATTEMPTS/
+comparisons/
+wandb/
+*.md
+*.json
+*.csv
+*.tsv
+*.jsonl
+generated_tokens/
