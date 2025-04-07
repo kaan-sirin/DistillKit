@@ -7,6 +7,7 @@ import yaml
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
+
 def medqa_format(example):
     try:
         text = (
@@ -23,13 +24,28 @@ def medqa_format(example):
         print(f"Error formatting example: {e}")
         raise
 
+
+def  medlfqa_format(example):
+    try: 
+        text = (
+            f"Question: {example['Question']}\n\n"
+            f"Answer: {example['Free_form_answer']}"
+        )
+        return {"text": text}
+    except Exception as e:
+        print(f"Sample keys: {list(example.keys())}")
+        print(f"Error formatting example: {e}")
+        raise
+
+
 def load_config(config_path="config.yaml"):
     try:
         with open(config_path, "r") as file:
             config = yaml.safe_load(file)
-            config["training"]["learning_rate"] = float(
-                config["training"]["learning_rate"]
-            )
+            if config.get("training", {}).get("learning_rate"):
+                config["training"]["learning_rate"] = float(
+                    config["training"]["learning_rate"]
+                )
         print(f"Configuration loaded from {config_path}")
         return config
     except FileNotFoundError:
@@ -368,28 +384,22 @@ class LivePlotCallback(TrainerCallback):
             )
 
 
-def get_max_token_length(dataset, tokenizer, generate_plot=True, plot_path="token_length_stats.png"):
+def get_max_token_length(
+    dataset, tokenizer, generate_plot=True, plot_path="token_length_stats.png"
+):
     max_length = 0
     lengths = []
 
-    # Define the format function inline (same as in the main script)
-    def medqa_format(example):
-        text = (
-            "Du är en medicinsk expert. Svara på följande flervalsfråga. \n\n"
-            f"{example['question']}\n\n"
-            f"{example['options']}\n\n"
-            f"{example['model_response']}"
-        )
-        return text
+   
 
     max_index = 1000
     for i, example in enumerate(dataset):
         try:
             # Format the example
-            formatted_text = medqa_format(example)
+            formatted_text = medlfqa_format(example)
 
             # Tokenize without padding or truncation to get true length
-            tokens = tokenizer(formatted_text, truncation=False, padding=False)
+            tokens = tokenizer(formatted_text['text'], truncation=False, padding=False)
 
             # Get token count
             length = len(tokens.input_ids)
@@ -422,43 +432,61 @@ def get_max_token_length(dataset, tokenizer, generate_plot=True, plot_path="toke
             "95": np.percentile(lengths, 95),
             "99": np.percentile(lengths, 99),
         },
-        "total_examples": len(lengths)
+        "total_examples": len(lengths),
     }
-    
+
     # Generate histogram plot
     if generate_plot:
         plt.figure(figsize=(12, 8))
-        
+
         # Histogram
         plt.subplot(2, 1, 1)
-        plt.hist(lengths, bins=50, color='skyblue', edgecolor='black', alpha=0.7)
-        plt.axvline(stats["mean"], color='red', linestyle='dashed', linewidth=1, label=f'Mean: {stats["mean"]:.1f}')
-        plt.axvline(stats["median"], color='green', linestyle='dashed', linewidth=1, label=f'Median: {stats["median"]:.1f}')
-        plt.axvline(stats["max_length"], color='purple', linestyle='dashed', linewidth=1, label=f'Max: {stats["max_length"]}')
-        plt.title('Token Length Distribution')
-        plt.xlabel('Token Length')
-        plt.ylabel('Number of Examples')
+        plt.hist(lengths, bins=50, color="skyblue", edgecolor="black", alpha=0.7)
+        plt.axvline(
+            stats["mean"],
+            color="red",
+            linestyle="dashed",
+            linewidth=1,
+            label=f'Mean: {stats["mean"]:.1f}',
+        )
+        plt.axvline(
+            stats["median"],
+            color="green",
+            linestyle="dashed",
+            linewidth=1,
+            label=f'Median: {stats["median"]:.1f}',
+        )
+        plt.axvline(
+            stats["max_length"],
+            color="purple",
+            linestyle="dashed",
+            linewidth=1,
+            label=f'Max: {stats["max_length"]}',
+        )
+        plt.title("Token Length Distribution")
+        plt.xlabel("Token Length")
+        plt.ylabel("Number of Examples")
         plt.legend()
         plt.grid(alpha=0.3)
-        
+
         # Box plot
         plt.subplot(2, 1, 2)
         plt.boxplot(lengths, vert=False, patch_artist=True)
-        plt.title('Token Length Box Plot')
-        plt.xlabel('Token Length')
+        plt.title("Token Length Box Plot")
+        plt.xlabel("Token Length")
         plt.grid(alpha=0.3)
-        
+
         # Save figure
         plt.tight_layout()
         plt.savefig(plot_path)
         plt.close()
         stats["plot_path"] = plot_path
-        
+
     print(f"Analysis complete. Maximum token length: {max_length}")
     print(f"Mean token length: {stats['mean']:.2f}")
     print(f"Median token length: {stats['median']:.2f}")
     print(f"95th percentile: {stats['percentiles']['95']:.2f}")
-    
+
     return max_length, max_index, stats
 
 
@@ -476,25 +504,31 @@ if __name__ == "__main__":
         if config["dataset"].get("subset")
         else load_dataset(config["dataset"]["name"], split=config["dataset"]["split"])
     )
+    
+    dataset = dataset.map(medlfqa_format)
+    print(dataset[0].keys()) # contains 'text'
+    print(dataset[0]['text'])
+    
     student_tokenizer = AutoTokenizer.from_pretrained(
         config["models"]["student"], token=HF_TOKEN
     )
-    max_tokens, max_index, token_stats = get_max_token_length(dataset, student_tokenizer)
+    max_tokens, max_index, token_stats = get_max_token_length(
+        dataset, student_tokenizer
+    )
     print(f"Max token length: {max_tokens}, Max index: {max_index}")
-    
+
     # Print detailed statistics
     print("\nToken Length Statistics:")
     print(f"Mean: {token_stats['mean']:.2f}")
     print(f"Median: {token_stats['median']:.2f}")
     print(f"Distribution:")
-    for p, v in token_stats['percentiles'].items():
+    for p, v in token_stats["percentiles"].items():
         print(f"  {p}th percentile: {v:.2f}")
-    
+
     if "plot_path" in token_stats:
         print(f"\nToken length distribution plot saved to: {token_stats['plot_path']}")
-    
+
     # print(f"\n\n{dataset[max_index]['question']}")
     # print(f"\n\n{dataset[max_index]['options']}")
     # print(f"\n\n{dataset[max_index]['model_response']}")
     # print(f"\n\n{dataset[max_index]['answer']}")
- 
