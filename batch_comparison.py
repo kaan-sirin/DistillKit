@@ -37,6 +37,9 @@ def setup():
 
 def load_model(model_name_or_path):
     """Load model with optimizations for speed"""
+    # Initialize logger
+    logger = logging.getLogger(__name__)
+    
     try:
         if os.path.isdir(f"./results/{model_name_or_path}"):
             model_name_or_path = f"./results/{model_name_or_path}"
@@ -105,9 +108,11 @@ Nice-to-have reference statements:
         return examples, evaluation_prompt
 
     elif dataset_name == "kaans/rule_qa":
+        start_tokens = "<|begin_of_text|><|start_header_id|>user<|end_header_id|>"
+        end_tokens = "<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
         examples = [
             {
-                "prompt": x["text"],
+                "prompt": f"{start_tokens}{x['text']}{end_tokens}",
                 "reference_answer": x["answer"],
             }
             for x in examples
@@ -181,6 +186,19 @@ Nice-to-have reference statements:
             If neither answer is correct, mention it in the explanation.
             This is a blind evaluation.
             """
+        return examples, evaluation_prompt
+    
+    elif dataset_name == "tatsu-lab/alpaca":
+        examples = [
+            {
+                "prompt": x["instruction"],
+                "reference_answer": x["output"],
+            }
+            for x in examples if x["input"] == ""
+        ]
+
+        evaluation_prompt = ""
+        
         return examples, evaluation_prompt
     else:
         raise NotImplementedError(f"{dataset_name} is not implemented.")
