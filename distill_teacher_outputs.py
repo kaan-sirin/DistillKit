@@ -85,7 +85,6 @@ class LogitsTrainer(SFTTrainer):
             # Set the labels to -100 for all tokens OTHER than between start_idxs[idx] and start_idxs[idx] + len(logits)
             # My reasoning is that distillation loss is only computed for the output tokens, not input or padding tokens
             # So, cross entropy loss shouldn't be computed for them either
-            inputs["labels"][idx, : start_idxs[idx]] = -100
             inputs["labels"][idx, start_idxs[idx] + len(logits) :] = -100
 
             if self.debug and not self.has_printed_debug_info:
@@ -157,10 +156,10 @@ class LogitsTrainer(SFTTrainer):
 
             print(f"#\n# Value ranges:")
             print(
-                f"#   Student logits - min: {student_logits.min():.2f}, max: {student_logits.max():.2f}"
+                f"#   Student logits [min: {student_logits.min():.2f}, max: {student_logits.max():.2f}]"
             )
             print(
-                f"#   Teacher logits - min: {sparse_teacher_logits.min():.2f}, max: {sparse_teacher_logits.max():.2f}"
+                f"#   Teacher logits [min: {sparse_teacher_logits.min():.2f}, max: {sparse_teacher_logits.max():.2f}]"
             )
 
             # Compare top predictions for first sequence
@@ -303,15 +302,20 @@ class LogitsTrainer(SFTTrainer):
             teacher_logits / self.config["distillation"]["temperature"]
         )
 
-        loss_kd = (
-            F.kl_div(
-                F.log_softmax(student_logits_scaled, dim=-1),
-                F.softmax(teacher_logits_scaled, dim=-1),
-                reduction="batchmean",
-            )
-            * (self.config["distillation"]["temperature"] ** 2)
-            / self.config["tokenizer"]["max_length"]
-        )
+       
+        # Create mask where valid tokens exist (not padding)
+        valid_mask = (teacher_logits != -1e9).any(dim=-1)
+
+        # Calculate token-wise KL divergence
+        token_kl = F.kl_div(
+            F.log_softmax(student_logits_scaled, dim=-1),
+            F.softmax(teacher_logits_scaled, dim=-1),
+            reduction='none'
+        ).sum(dim=-1)
+
+        # Apply mask and normalize by number of actual tokens
+        loss_kd = (token_kl * valid_mask).sum() / valid_mask.sum().clamp(min=1)
+        loss_kd = loss_kd * (self.config["distillation"]["temperature"] ** 2)
 
         total_loss = (
             self.config["distillation"]["alpha"] * loss_kd
@@ -319,16 +323,24 @@ class LogitsTrainer(SFTTrainer):
         )
 
         return total_loss, {"loss_kd": loss_kd, "original_loss": original_loss}
-
+    
     def log(self, logs, start_time=None):
-        # First add our component losses if available
-        if hasattr(self, "_current_loss_kd") and hasattr(
-            self, "_current_original_loss"
-        ):
+        # Check if we're in evaluation mode
+        is_eval = any(k.startswith("eval_") for k in logs.keys())
+        
+        # Add component losses for training (keep your existing code)
+        if not is_eval and hasattr(self, "_current_loss_kd") and hasattr(self, "_current_original_loss"):
             logs["loss_kd"] = self._current_loss_kd
             logs["original_loss"] = self._current_original_loss
+        
+        # Add just eval_loss for evaluation
+        if is_eval and hasattr(self, "_current_loss_kd") and hasattr(self, "_current_original_loss"):
+            # Calculate total loss
+            total = (self.config["distillation"]["alpha"] * self._current_loss_kd + 
+                   (1 - self.config["distillation"]["alpha"]) * self._current_original_loss)
+            logs["eval_loss"] = total
 
-        # Then let the parent handle logging
+        # Let parent handle logging
         super().log(logs)
 
 
@@ -355,13 +367,16 @@ if __name__ == "__main__":
     config = load_config()
     run_name = f"distill_teacher_outputs_{config['dataset']['name'].split('/')[-1].replace('-', '_')}_{config['dataset']['num_samples']}_samples_{config['training']['num_train_epochs']}_epochs_{config['dataset']['teacher_data']['top_k']}_top_k_{time.strftime('%m_%d_%H-%M')}"
 
-    # Output directory
-    output_base = config["training"]["output_dir"]
-    output_dir = os.path.join(output_base, run_name)
-    os.makedirs(output_dir, exist_ok=True)
+    # Only create output directory and initialize wandb if not in debug mode
+    if not DEBUG_MODE:
+        # Output directory
+        output_base = config["training"]["output_dir"]
+        output_dir = os.path.join(output_base, run_name)
+        os.makedirs(output_dir, exist_ok=True)
 
-    # Set up environment
-    os.environ["WANDB_PROJECT"] = config["project_name"]
+        # Set up environment
+        os.environ["WANDB_PROJECT"] = config["project_name"]
+
     accelerator = Accelerator()
 
     # Load and preprocess dataset
@@ -466,21 +481,22 @@ if __name__ == "__main__":
     training_arguments = TrainingArguments(
         **config["training"],
         remove_unused_columns=False,
-        report_to=["wandb"],
+        report_to=["wandb"] if not DEBUG_MODE else [],
     )
 
-    wandb.init(
-        project=config["project_name"],
-        name=run_name,
-        config={
-            "student_model": config["models"]["student"],
-            "distillation_method": config["distillation"]["method"],
-            "alpha": config["distillation"]["alpha"],
-            "temperature": config["distillation"]["temperature"],
-            "num_samples": config["dataset"]["num_samples"],
-            "num_epochs": config["training"]["num_train_epochs"],
-        },
-    )
+    if not DEBUG_MODE:
+        wandb.init(
+            project=config["project_name"],
+            name=run_name,
+            config={
+                "student_model": config["models"]["student"],
+                "distillation_method": config["distillation"]["method"],
+                "alpha": config["distillation"]["alpha"],
+                "temperature": config["distillation"]["temperature"],
+                "num_samples": config["dataset"]["num_samples"],
+                "num_epochs": config["training"]["num_train_epochs"],
+            },
+        )
 
     teacher_lengths = [len(logits) for logits in sparse_logits]
     trainer = LogitsTrainer(
@@ -496,4 +512,15 @@ if __name__ == "__main__":
 
     trainer = accelerator.prepare(trainer)
     trainer.train(resume_from_checkpoint=config["training"]["resume_from_checkpoint"])
-    trainer.save_model(output_dir)
+    
+    # Only save model if not in debug mode
+    if not DEBUG_MODE:
+        trainer.save_model(output_dir)
+
+
+
+# WHAT MIGHT BE THE ISSUE?
+
+
+#TESTING:
+# - Not normalizing the logits (not dividing by max_new_tokens in distillation loss)
