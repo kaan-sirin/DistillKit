@@ -20,7 +20,7 @@ mkdir -p $TORCH_HOME $HF_HOME
 
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
-export WANDB_OFFLINE=1 # Check if this actually works
+export WANDB_MODE=offline
 
 # Disable internal parallelism of huggingface's tokenizer since we
 # want to retain direct control of parallelism options.
