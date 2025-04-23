@@ -25,12 +25,29 @@ def medqa_format(example):
         raise
 
 
-def  medlfqa_format(example):
-    try: 
+def medlfqa_format(example):
+    try:
         text = (
             f"Question: {example['Question']}\n\n"
             f"Answer: {example['Free_form_answer']}"
         )
+        return {"text": text}
+    except Exception as e:
+        print(f"Sample keys: {list(example.keys())}")
+        print(f"Error formatting example: {e}")
+        raise
+
+
+def alpaca_format(example, tokenizer):
+    try:
+        user_prompt_start = f"<|start_header_id|>user<|end_header_id|>"
+        user_prompt_end = f"<|eot_id|>"
+        decoded_output = ""
+        sequence = example["sparse_logits"]
+        for token in sequence:
+            token.sort(key=lambda x: x[1], reverse=True)
+            decoded_output += tokenizer.decode(int(token[0][0]))
+        text = f"{user_prompt_start}{example['instruction']}{user_prompt_end}{decoded_output}"
         return {"text": text}
     except Exception as e:
         print(f"Sample keys: {list(example.keys())}")
@@ -390,8 +407,6 @@ def get_max_token_length(
     max_length = 0
     lengths = []
 
-   
-
     max_index = 1000
     for i, example in enumerate(dataset):
         try:
@@ -399,7 +414,7 @@ def get_max_token_length(
             formatted_text = medlfqa_format(example)
 
             # Tokenize without padding or truncation to get true length
-            tokens = tokenizer(formatted_text['text'], truncation=False, padding=False)
+            tokens = tokenizer(formatted_text["text"], truncation=False, padding=False)
 
             # Get token count
             length = len(tokens.input_ids)
@@ -504,11 +519,11 @@ if __name__ == "__main__":
         if config["dataset"].get("subset")
         else load_dataset(config["dataset"]["name"], split=config["dataset"]["split"])
     )
-    
+
     dataset = dataset.map(medlfqa_format)
-    print(dataset[0].keys()) # contains 'text'
-    print(dataset[0]['text'])
-    
+    print(dataset[0].keys())  # contains 'text'
+    print(dataset[0]["text"])
+
     student_tokenizer = AutoTokenizer.from_pretrained(
         config["models"]["student"], token=HF_TOKEN
     )
