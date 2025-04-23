@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 from distillation_utils import load_config, medqa_format, medlfqa_format
 import time
 
+from reverse_kld import reverse_kld
+
 
 def tokenize_function(examples, tokenizer, config):
     return tokenizer(
@@ -62,6 +64,7 @@ class LogitsTrainer(SFTTrainer):
         return (total_loss, student_outputs) if return_outputs else total_loss
 
     def distillation_loss(self, student_logits, teacher_logits, inputs, original_loss):
+        use_reverse_kld = False
 
         student_logits_scaled = (
             student_logits / self.config["distillation"]["temperature"]
@@ -70,15 +73,21 @@ class LogitsTrainer(SFTTrainer):
             teacher_logits / self.config["distillation"]["temperature"]
         )
 
-        loss_kd = (
-            F.kl_div(
-                F.log_softmax(student_logits_scaled, dim=-1),
-                F.softmax(teacher_logits_scaled, dim=-1),
-                reduction="batchmean",
+        if use_reverse_kld:
+            loss_kd = (
+                reverse_kld(student_logits_scaled, teacher_logits_scaled)
+                * self.config["distillation"]["temperature"] ** 2
             )
-            * (self.config["distillation"]["temperature"] ** 2)
-            / self.config["tokenizer"]["max_length"]
-        )
+        else:
+            loss_kd = (
+                F.kl_div(
+                    F.log_softmax(student_logits_scaled, dim=-1),
+                    F.softmax(teacher_logits_scaled, dim=-1),
+                    reduction="batchmean",
+                )
+                * (self.config["distillation"]["temperature"] ** 2)
+                / self.config["tokenizer"]["max_length"]
+            )
 
         total_loss = (
             self.config["distillation"]["alpha"] * loss_kd
@@ -104,13 +113,11 @@ def main():
     HF_TOKEN = os.getenv("HF_TOKEN")
 
     config = load_config()
-    run_name = f"distill_{config['dataset']['name'].split('/')[-1].replace('-', '_')}_{config['dataset']['num_samples']}samples_{config['training']['num_train_epochs']}epochs_{time.strftime('%m-%d_%H-%M').replace('-', '_')}"
+    run_name = f"reverse_distill_{config['dataset']['name'].split('/')[-1].replace('-', '_')}_{config['dataset']['num_samples']}samples_{config['training']['num_train_epochs']}epochs_{time.strftime('%m-%d_%H-%M').replace('-', '_')}"
 
     # Output directory
     output_base = config["training"]["output_dir"]
-    output_dir = os.path.join(
-        output_base, run_name
-    )
+    output_dir = os.path.join(output_base, run_name)
     os.makedirs(output_dir, exist_ok=True)
 
     # Set up environment
@@ -173,7 +180,6 @@ def main():
         config["models"]["student"], **model_kwargs
     )
 
-
     training_arguments = TrainingArguments(
         **config["training"],
         report_to=["wandb"],
@@ -215,6 +221,7 @@ def main():
 
     # Save the final model
     trainer.save_model(output_dir)
+
 
 if __name__ == "__main__":
     main()
