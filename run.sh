@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --time=0:15:00
 #SBATCH --mail-type=ALL # Sends you an email when it starts/stop
-#SBATCH --mail-user=<put_email@here.com>
+#SBATCH --mail-user=kaansirin@yahoo.com
 
 module load profile/deeplrn
 module load cineca-ai/4.3.0
@@ -26,4 +26,4 @@ export WANDB_MODE=offline
 # want to retain direct control of parallelism options.
 export TOKENIZERS_PARALLELISM=false
 
-accelerate launch --num_processes $GPUS_PER_NODE distill_logits_final.py
+accelerate launch --num_processes $GPUS_PER_NODE distillation_on_cluster.py
