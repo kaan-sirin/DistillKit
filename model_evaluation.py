@@ -9,7 +9,9 @@ from batch_comparison import format_examples, setup, load_model
 from torch import amp
 
 
-def generate_responses(model, tokenizer, prompts, max_new_tokens=512):
+def generate_responses(
+    model, tokenizer, prompts, max_new_tokens=512, skip_special_tokens=True
+):
     """Generate responses for a list of prompts"""
     batch_inputs = tokenizer(prompts, padding=True, return_tensors="pt").to(
         model.device
@@ -33,7 +35,9 @@ def generate_responses(model, tokenizer, prompts, max_new_tokens=512):
     responses = []
     for i, output in enumerate(outputs):
         prompt_tokens = len(batch_inputs["input_ids"][i])
-        response = tokenizer.decode(output[prompt_tokens:], skip_special_tokens=True)
+        response = tokenizer.decode(
+            output[prompt_tokens:], skip_special_tokens=skip_special_tokens
+        )
         responses.append(response)
 
     return responses
@@ -50,11 +54,13 @@ def evaluate_model(
     max_new_tokens=512,
     batch_size=4,
     output_filename=None,
+    enable_logging: bool = False,
 ):
     """Evaluate a model on a dataset"""
-    logger = setup()
+    logger = setup() if enable_logging else None
     timestamp = datetime.now().strftime("%m%d_%H%M%S")
-    logger.info(f"Evaluating model {model_name} on dataset {dataset_name}")
+    if logger:
+        logger.info(f"Evaluating model {model_name} on dataset {dataset_name}")
 
     # Load dataset
     try:
@@ -63,9 +69,11 @@ def evaluate_model(
             if dataset_subset
             else load_dataset(dataset_name, split=dataset_split)
         )
-        logger.info(f"Loaded {len(dataset)} examples")
+        if logger:
+            logger.info(f"Loaded {len(dataset)} examples")
     except Exception as e:
-        logger.error(f"Error loading dataset: {e}")
+        if logger:
+            logger.error(f"Error loading dataset: {e}")
         raise
 
     # Load model
@@ -74,16 +82,19 @@ def evaluate_model(
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
     except Exception as e:
-        logger.error(f"Error loading model: {e}")
+        if logger:
+            logger.error(f"Error loading model: {e}")
         raise
 
     # Select examples
     examples = [dataset[i] for i in range(start_index, dataset.num_rows)]
     if random_sampling:
-        logger.info(f"Randomly sampling {num_samples} examples")
+        if logger:
+            logger.info(f"Randomly sampling {num_samples} examples")
         selected_examples = random.sample(examples, min(num_samples, len(examples)))
     else:
-        logger.info(f"Using first {num_samples} examples after index {start_index}")
+        if logger:
+            logger.info(f"Using first {num_samples} examples after index {start_index}")
         selected_examples = examples[: min(num_samples, len(examples))]
 
     # Format examples
@@ -123,17 +134,16 @@ def evaluate_model(
         style_prompt_sassy = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
         You're a sassy teenager. Answer the following question in a sassy way.
         <|eot_id|><|start_header_id|>user<|end_header_id|>"""
-        
+
         style_prompt_cat = """<|begin_of_text|><|start_header_id|>system<|end_header_id|>
         You're a cat. Answer the following question. Meow meow meow!
         <|eot_id|><|start_header_id|>user<|end_header_id|>"""
-        
+
+        start_prompt = "<|begin_of_text|><|start_header_id|>user<|end_header_id|>"
         end_prompt = "<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
-        
-        style_prompt_ELI12 = "[INST] Answer the following question as if I am a smart 12 year old. [/INST]"
 
         prompts = [
-            f"{style_prompt_sassy}{example['prompt']}{end_prompt}"
+            f"{start_prompt}{example['prompt']}{end_prompt}"
             for example in current_batch
         ]
         responses = generate_responses(model, tokenizer, prompts, max_new_tokens)
@@ -162,20 +172,91 @@ def evaluate_model(
             f.write(f"### Model Response\n\n{result['model_response']}\n\n")
             f.write("---\n\n")
 
-    logger.info(f"Evaluation complete! Results saved to {output_dir}")
+    if logger:
+        logger.info(f"Evaluation complete! Results saved to {output_dir}")
     return all_results
 
 
+# Quick test: Ask the model a single question
+def ask_model_question(
+    model_name,
+    question,
+    max_new_tokens=512,
+    enable_logging: bool = False,
+    skip_special_tokens: bool = True,
+):
+    """Ask a single question to the model and print the response"""
+    logger = setup() if enable_logging else None
+    if logger:
+        logger.info(f"Loading model: {model_name}")
+
+    # Load model
+    model, tokenizer = load_model(model_name)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    # Format question
+    start_prompt = "<|begin_of_text|><|start_header_id|>user<|end_header_id|>"
+    end_prompt = "<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
+    formatted_question = f"{start_prompt}{question}{end_prompt}"
+
+    # Generate response
+    if logger:
+        logger.info("Generating response...")
+    response = generate_responses(
+        model, tokenizer, [formatted_question], max_new_tokens, skip_special_tokens
+    )[0]
+
+    return response
+
+
 if __name__ == "__main__":
+    # distilled = "results/distill_teacher_outputs_alpaca_320_samples_3_epochs_96_top_k_04_15_14-22"
+    # distilled = "results/distill_teacher_outputs_alpaca_320_samples_3_epochs_3_top_k_04_15_16-24"
+    # distilled = "results/distill_teacher_outputs_alpaca_320_samples_3_epochs_3_top_k_04_17_10-20"
+    # distilled = "results/alpha_1_distill_teacher_outputs_alpaca_320_samples_3_epochs_96_top_k_04_20_00-50"
+    # distilled = "results/alpha_1_distill_teacher_outputs_alpaca_320_samples_3_epochs_3_top_k_04_20_00-42"
+    # distilled = "results/alpha_1_distill_teacher_outputs_alpaca_320_samples_3_epochs_3_top_k_04_20_22-42"
+    distilled_small = "results/sparse_kd_student_20250421_230313_final_1000"
+    distilled_large = "results/sparse_kd_student_20250422_114315_final_10000"
+    sft = "results/sft_distill_alpaca_320samples_3epochs_04_08_16_08"
+    teacher = "meta-llama/Llama-3.2-3B-Instruct"
+
     # Example usage
-    evaluate_model(
-        model_name="meta-llama/Llama-3.2-3B-Instruct",
-        dataset_name="kaans/rule_qa",
-        # dataset_subset="main",
-        dataset_split="train",
-        num_samples=8,
-        random_sampling=False,
-        max_new_tokens=512,
-        batch_size=4,
-        output_filename="sassy",
-    )
+    # evaluate_model(
+    #     model_name=distilled_large,
+    #     dataset_name="kaans/rule_qa",
+    #     # dataset_subset="main",
+    #     dataset_split="train",
+    #     num_samples=16,
+    #     random_sampling=False,
+    #     max_new_tokens=512,
+    #     batch_size=4,
+    #     output_filename="sassy_16_random_sample_logit_distilled_large",
+    #     # enable_logging=True # Uncomment to enable logging
+    # )
+
+    # Edit the model name and question below for quick testing
+    # questions = ["Which power block won the second world war?", "What color is your hair?", "Introduce yourself in 100 words"]
+    questions = ["What's your favorite thing to do?", "Which team is better, Barca or Real?", "If a meteorite hits the earth, what will happen?"]
+
+    # questions = [
+    #     "Explain what quantum entanglement is as if I were a 10‑year‑old, using a real‑world analogy.",
+    #     "List step‑by‑step instructions for cooking a perfect omelette, including tips to avoid common mistakes.",
+    #     "Summarize the process of photosynthesis in two sentences, preserving the key facts and tone.",
+    #     "Write a 6‑line poem in the style of Robert Frost about the changing seasons.",
+    #     "Given this Python function stub, complete it to compute the nth Fibonacci number efficiently:\n```python\ndef fib(n):\n    # your code here\n```",
+    # ]
+    for question in questions:
+        print("Question:")
+        print(question)
+        print("-" * 50)
+        print("Distilled model (with sparser logits):")
+        print(ask_model_question(distilled_small, question, skip_special_tokens=False))
+        print("-" * 50)
+        print("Distilled model (with denser logits):")
+        print(ask_model_question(distilled_large, question, skip_special_tokens=False))
+        print("-" * 50)
+        print("SFT model:")
+        print(ask_model_question(sft, question, skip_special_tokens=False))
+        print("#" * 100)
