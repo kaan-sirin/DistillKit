@@ -39,13 +39,7 @@ class LogitsTrainer(SFTTrainer):
 
         inputs = {k: v.to(device) if hasattr(v, "to") else v for k, v in inputs.items()}
         student_model = model.module if hasattr(model, "module") else model
-        labels = inputs["input_ids"].clone()
-        # Shift labels to the left by one position (predict next token)
-        labels[:, :-1] = inputs["input_ids"][:, 1:]
-        # Set the last position to padding token ID or -100 to be ignored in loss calculation
-        labels[:, -1] = -100
-        inputs["labels"] = labels
-
+        
         # Figure out the start index of each response
         start_idxs = []
         for example in inputs["input_ids"]:
@@ -53,39 +47,98 @@ class LogitsTrainer(SFTTrainer):
                 if input_id == self.processing_class.eos_token_id:  # 128009
                     start_idxs.append(i)
                     break
+        
+        
+        labels = inputs["input_ids"].clone()
+        # Shift labels to the left by one position (predict next token)
+        labels[:, :-1] = inputs["input_ids"][:, 1:]
+        # Set the last position to padding token ID or -100 to be ignored in loss calculation, if answer is 512 tokens long
+        labels[:, -1] = -100
+        
+        def format_token(token_tensor):
+                token_val = token_tensor.item()
+                if token_val == -100:
+                    return '[IGNORE]'
+                else:
+                    # Attempt to decode, handle potential errors gracefully
+                    try:
+                        return self.processing_class.decode(token_val)
+                    except Exception as e:
+                        # Log or handle decoding errors for non -100 tokens if necessary
+                        return '[DECODE_ERR]'
+        
+        # if self.debug:
+        #     print(f"\n######################### DEBUG MODE #########################")
+        #     print(f"\n# First 20 input tokens of first sequence: {[token.item() for token in inputs['input_ids'][0, :20]]}")
+        #     print(f"\n# First 20 input tokens of first sequence, decoded: {[format_token(token) for token in inputs['input_ids'][0, :20]]}")
+        #     print(f"\n# First 20 labels of first sequence after cloning and shifting: {[token.item() for token in labels[0, :20]]}")
+        #     print(f"\n# First 20 labels of first sequence after cloning and shifting, decoded: {[format_token(token) for token in labels[0, :20]]}")
+        #     print(f"\n# Last 20 input tokens of first sequence: {[token.item() for token in inputs['input_ids'][0, -20:]]}")
+        #     print(f"\n# Last 20 input tokens of first sequence, decoded: {[format_token(token) for token in inputs['input_ids'][0, -20:]]}")
+        #     print(f"\n# Last 20 labels of first sequence after cloning and shifting: {[token.item() for token in labels[0, -20:]]}")
+        #     print(f"\n# Last 20 labels of first sequence after cloning and shifting, decoded: {[format_token(token) for token in labels[0, -20:]]}")
+
+        for idx, logits in enumerate(inputs["sparse_logits"]):
+            start_idx = start_idxs[idx]
+            teacher_len = len(logits)
+            
+            labels[idx, : start_idx] = -100
+            if teacher_len == 512: 
+                labels[idx, start_idx + teacher_len +1:] = -100 # Based on my observations
+            else:
+                labels[idx, start_idx + teacher_len :] = -100
+        
+        inputs["labels"] = labels
+        
+        # if self.debug:
+        #     start_idx = start_idxs[0]
+        #     print(f"\n# First 20 labels of first sequence after masking: {[token.item() for token in labels[0, :20]]}")
+        #     print(f"\n# First 20 labels of first sequence after masking, decoded: {[format_token(token) for token in labels[0, :20]]}")
+        #     print(f"\n# Last 20 labels of first sequence after masking: {[token.item() for token in labels[0, -20:]]}")
+        #     print(f"\n# Last 20 labels of first sequence after masking, decoded: {[format_token(token) for token in labels[0, -20:]]}")
+        #     # The input_id token should always be valid, so no check needed there
+        #     print(f"\n# 10 tokens before and after the start index ({start_idx} = {self.processing_class.decode(inputs['input_ids'][0, start_idx].item())}) of first sequence: {[token.item() for token in labels[0, start_idx-10:start_idx+10]]}")
+        #     print(f"\n# 10 tokens before and after the start index ({start_idx} = {self.processing_class.decode(inputs['input_ids'][0, start_idx].item())}) of first sequence, decoded: {[format_token(token) for token in labels[0, start_idx-10:start_idx+10]]}")
+        #     print(f"#############################################################\n")
+
+
+        
 
         if self.debug and not self.has_printed_debug_info:
-            print(f"\n\n######################### DEBUG MODE #########################")
-            print(f"# Inputs keys: {inputs.keys()}")
-            print(f"# Input IDs shape: {inputs['input_ids'].shape}")
-            print(f"# Attention mask shape: {inputs['attention_mask'].shape}")
-            number_of_ones = inputs["attention_mask"][0].tolist().count(1)
-            print(
-                f"#\n# Number of ones in the first sequence of the attention mask: {number_of_ones}"
-            )
-            print(
-                f"# The length of the first sequence of teacher logits: {len(inputs['sparse_logits'][0])}"
-            )
+            for i in range(len(inputs["input_ids"])):
+                print(f"\n\n######################### DEBUG MODE #########################")
+                print(f"# Inputs keys: {inputs.keys()}")
+                print(f"# Input IDs shape: {inputs['input_ids'].shape}")
+                print(f"# Attention mask shape: {inputs['attention_mask'].shape}")
+                number_of_ones = inputs["attention_mask"][i].tolist().count(1)
+                print(
+                    f"#\n# Number of ones in the {i}-th sequence of the attention mask: {number_of_ones}"
+                )
+                print(
+                    f"# The length of the {i}-th sequence of teacher logits: {len(inputs['sparse_logits'][i])}"
+                )
 
-            print(f"# The responses start at the following indices: {start_idxs}")
-
-            print(
-                f"#\n# For the first sequence, the number of ones in the attention mask ({number_of_ones}) should be equal to;"
-            )
-            print(
-                f"# ->  'prompt length ({start_idxs[0] + 1})' + 'length of the teacher output ({len(inputs['sparse_logits'][0])})' = {start_idxs[0] + 1 + len(inputs['sparse_logits'][0])}"
-            )
-            if number_of_ones != start_idxs[0] + 1 + len(inputs["sparse_logits"][0]):
-                print(f"#\n# ❌ Values don't match")
-            else:
-                print(f"#\n# ✅ Values match")
-            print(f"#############################################################\n")
+                print(f"# The answer starts at the following index: {start_idxs[i]}, ie. {inputs['input_ids'][i][start_idxs[i]]} = {self.processing_class.decode(inputs['input_ids'][i][start_idxs[i]].item())}")
+    
+                print(
+                    f"#\n# For the {i}-th sequence, the number of ones in the attention mask ({number_of_ones}) should be equal to;"
+                )
+                print(
+                    f"# ->  'prompt length ({start_idxs[i] + 1})' + 'length of the teacher output ({len(inputs['sparse_logits'][i])})' = {start_idxs[i] + 1 + len(inputs['sparse_logits'][i])}"
+                )
+                if number_of_ones != start_idxs[i] + 1 + len(inputs["sparse_logits"][i]):
+                    print(f"#\n# ❌ Values don't match")
+                else:
+                    print(f"#\n# ✅ Values match")
+                print(f"#############################################################\n")
 
         for idx, logits in enumerate(inputs["sparse_logits"]):
             # Set the labels to -100 for all tokens OTHER than between start_idxs[idx] and start_idxs[idx] + len(logits)
             # My reasoning is that distillation loss is only computed for the output tokens, not input or padding tokens
             # So, cross entropy loss shouldn't be computed for them either
-            inputs["labels"][idx, start_idxs[idx] + len(logits) :] = -100
+            start_idx = start_idxs[idx]
+            teacher_len = len(logits)
+            
 
             if self.debug and not self.has_printed_debug_info:
                 print(
@@ -100,6 +153,7 @@ class LogitsTrainer(SFTTrainer):
                 print(
                     f"\n#############################################################\n"
                 )
+
 
         sparse_teacher_logits = inputs.pop(
             "sparse_logits"
@@ -119,6 +173,7 @@ class LogitsTrainer(SFTTrainer):
             sparse_teacher_logits,
             len(self.processing_class),
             self.config["dataset"]["teacher_data"]["max_new_tokens"],
+            device=device
         )
         
         if self.debug and not self.has_printed_debug_info:
@@ -128,7 +183,7 @@ class LogitsTrainer(SFTTrainer):
             )
             
             teacher_active_positions_first_sequence = (
-                (sparse_teacher_logits[0] != -1e9).sum(dim=-1) > 0
+                (sparse_teacher_logits[0] != -1e4).sum(dim=-1) > 0
             ).sum()
             
             if teacher_active_positions_first_sequence > 120:
@@ -174,9 +229,9 @@ class LogitsTrainer(SFTTrainer):
             )
 
             # Check how many token positions are non-padding
-            student_active_positions = ((student_logits != -1e9).sum(dim=-1) > 0).sum()
+            student_active_positions = ((student_logits != -1e4).sum(dim=-1) > 0).sum()
             teacher_active_positions = (
-                (sparse_teacher_logits != -1e9).sum(dim=-1) > 0
+                (sparse_teacher_logits != -1e4).sum(dim=-1) > 0
             ).sum()
             print(f"#\n# Number of non-padding token positions:")
             print(f"#   Student: {student_active_positions} positions")
@@ -199,6 +254,19 @@ class LogitsTrainer(SFTTrainer):
             self.has_printed_debug_info = True
             exit()
 
+        # initialise at the start of each accumulation cycle
+        if self.state.global_step % self.args.gradient_accumulation_steps == 0:
+            print(f"Initialising running kd and ce at step {self.state.global_step}")
+            self.running_kd = 0.0
+            self.running_ce = 0.0
+            self.running_tokens = 0
+        
+        valid_mask = (sparse_teacher_logits != -1e4).any(dim=-1)
+
+        self.running_kd += loss_components["loss_kd"].detach() * valid_mask.sum()
+        self.running_ce += loss_components["original_loss"].detach() * valid_mask.sum()
+        self.running_tokens += valid_mask.sum()
+
         return (total_loss, student_outputs) if return_outputs else total_loss
 
     def expand_teacher_sparse_representation(
@@ -206,14 +274,15 @@ class LogitsTrainer(SFTTrainer):
         sparse_logits,
         vocab_size,
         max_seq_length,
-        fill_value: float = -1e9,
+        fill_value: float = -1e4,
+        device=None
     ):
         """Convert sparse logits representation to a dense tensor.
         The sparse logits are stored as a list of lists of lists of tuples, where the first list is the batch, the second list is the sequence, and the third list is the token logits.
         """
         # Initialize dense tensor with fill_value
         dense_logits = torch.full(
-            (len(sparse_logits), max_seq_length, vocab_size), fill_value
+            (len(sparse_logits), max_seq_length, vocab_size), fill_value, device=device
         )
 
         # Populate dense_logits from sparse_logits
@@ -230,11 +299,13 @@ class LogitsTrainer(SFTTrainer):
         answer_start_indices,
         max_length,
         teacher_lengths,
-        fill_value=-1e9,
+        fill_value=-1e4,
         debug=False,
     ):
         batch_size, seq_len, vocab_size = dense_logits.shape
-        padded_logits = torch.full((batch_size, max_length, vocab_size), fill_value)
+        # Pass the device from the input tensor
+        device = dense_logits.device 
+        padded_logits = torch.full((batch_size, max_length, vocab_size), fill_value, device=device) 
 
         if debug:
             print(f"\n######################### DEBUG MODE #########################")
@@ -294,34 +365,79 @@ class LogitsTrainer(SFTTrainer):
         return padded_logits
 
     def distillation_loss(self, student_logits, teacher_logits, original_loss):
-
+        reverse_kld = True
+        
         student_logits_scaled = (
             student_logits / self.config["distillation"]["temperature"]
         )
         teacher_logits_scaled = (
             teacher_logits / self.config["distillation"]["temperature"]
         )
+        
+        # Create mask where valid tokens exist (not padding)
+        valid_mask = (teacher_logits != -1e4).any(dim=-1)
+
+        student_distribution = F.softmax(student_logits_scaled, dim=-1)
+        teacher_distribution = F.softmax(teacher_logits_scaled, dim=-1)
+        
+        if reverse_kld:
+            log_ps = F.log_softmax(student_logits_scaled, dim=-1)            # log p_s
+            ps     = log_ps.exp()                               # p_s
+            with torch.no_grad():
+                log_pt = F.log_softmax(teacher_logits_scaled, dim=-1)        # log p_t
+                log_pt = torch.clamp(log_pt, min=-30)
+            token_kl = (ps * (log_ps - log_pt)).sum(-1)         
+        
+        else:
+            # Calculate token-wise KL divergence
+            token_kl = F.kl_div(
+                F.log_softmax(student_logits_scaled, dim=-1),
+                teacher_distribution,
+                reduction='none'
+            ).sum(dim=-1)
+        
+        if (self.debug and token_kl.shape[0] == 2) or (self.state.global_step % self.args.gradient_accumulation_steps == 0): # Only if batch size is 2
+            print_logits = True
+            print(f"\n\n######################### KL DIVERGENCE #########################")
+            print(f"# First sequence:")
+            # Printing in the following format: (student_token, probability), (teacher_token, probability), kl_divergence
+            kl_div_first = 0
+            for i in range(len(token_kl[0, valid_mask[0]])):
+                kl_div_first += token_kl[0, valid_mask[0]][i].item()
+                if print_logits:
+                    top_3 = torch.topk(teacher_distribution[0, i], 3)
+                    teacher_print = f"[({self.processing_class.decode(top_3.indices[0].item())}, {top_3.values[0].item():.2f}) / ({self.processing_class.decode(top_3.indices[1].item())}, {top_3.values[1].item():.2f}) / ({self.processing_class.decode(top_3.indices[2].item())}, {top_3.values[2].item():.2f})]"
+                    print(f"# Token {i}: ({self.processing_class.decode(student_logits_scaled[0, i].argmax())}, {student_distribution[0, i].max().item():.2f}), {teacher_print}, {token_kl[0, valid_mask[0]][i].item():.2f}")
+            print(f"# Num of active tokens: {valid_mask[0].sum().item()}")
+            print(f"# Sum of KL divergence: {kl_div_first}\n\n")
+            # TODO: Uncomment this when batch size is 2
+            # print(f"#\n# Second sequence:")                 
+            # kl_div_second = 0
+            # for i in range(len(token_kl[1, valid_mask[1]])):
+            #     kl_div_second += token_kl[1, valid_mask[1]][i].item()
+            #     if print_logits:
+            #         top_3 = torch.topk(teacher_distribution[1, i], 3)
+            #         teacher_print = f"[({self.processing_class.decode(top_3.indices[0].item())}, {top_3.values[0].item():.2f}) / ({self.processing_class.decode(top_3.indices[1].item())}, {top_3.values[1].item():.2f}) / ({self.processing_class.decode(top_3.indices[2].item())}, {top_3.values[2].item():.2f})]"
+            #         print(f"# Token {i}: ({self.processing_class.decode(student_logits_scaled[1, i].argmax())}, {student_distribution[1, i].max().item():.2f}), {teacher_print}, {token_kl[1, valid_mask[1]][i].item():.2f}")
+            # print(f"# Num of active tokens: {valid_mask[1].sum().item()}")
+            # print(f"# Sum of KL divergence: {kl_div_second}")
+            
+            # print(f"#\n# Total mean KL divergence:")
+            # print(f"# Mean KL divergence after scaling by temperature: {(kl_div_first + kl_div_second)/(valid_mask[0].sum().item() + valid_mask[1].sum().item()) * (self.config['distillation']['temperature'] ** 2)}")
+            print(f"#############################################################\n")
 
        
-        # Create mask where valid tokens exist (not padding)
-        valid_mask = (teacher_logits != -1e9).any(dim=-1)
-
-        # Calculate token-wise KL divergence
-        token_kl = F.kl_div(
-            F.log_softmax(student_logits_scaled, dim=-1),
-            F.softmax(teacher_logits_scaled, dim=-1),
-            reduction='none'
-        ).sum(dim=-1)
-
         # Apply mask and normalize by number of actual tokens
         loss_kd = (token_kl * valid_mask).sum() / valid_mask.sum().clamp(min=1)
         loss_kd = loss_kd * (self.config["distillation"]["temperature"] ** 2)
 
-        total_loss = (
-            self.config["distillation"]["alpha"] * loss_kd
-            + (1 - self.config["distillation"]["alpha"]) * original_loss
-        )
-
+        # total_loss = (
+        #     self.config["distillation"]["alpha"] * loss_kd
+        #     + (1 - self.config["distillation"]["alpha"]) * original_loss
+        # )
+        
+        # TODO: WARNING, THIS IS AN EXPERIMENT: ALPHA = 1
+        total_loss = loss_kd
         return total_loss, {"loss_kd": loss_kd, "original_loss": original_loss}
     
     def log(self, logs, start_time=None):
@@ -343,6 +459,11 @@ class LogitsTrainer(SFTTrainer):
         # Let parent handle logging
         super().log(logs)
 
+        if not is_eval:
+            print(f"Running kd: {self.running_kd}, running ce: {self.running_ce}, running tokens: {self.running_tokens}")
+            logs["loss_kd"] = (self.running_kd / self.running_tokens).item()
+            logs["original_loss"] = (self.running_ce / self.running_tokens).item()
+
 
 class SparseLogitsCollator(DefaultDataCollator):
     def __call__(self, features):
@@ -359,14 +480,15 @@ class SparseLogitsCollator(DefaultDataCollator):
 
 
 if __name__ == "__main__":
-    DEBUG_MODE = False
+    #debug switch
+    DEBUG_MODE = True
 
     load_dotenv()
     HF_TOKEN = os.getenv("HF_TOKEN")
 
     config = load_config()
-    run_name = f"distill_teacher_outputs_{config['dataset']['name'].split('/')[-1].replace('-', '_')}_{config['dataset']['num_samples']}_samples_{config['training']['num_train_epochs']}_epochs_{config['dataset']['teacher_data']['top_k']}_top_k_{time.strftime('%m_%d_%H-%M')}"
-
+    # TODO: WARNING, THIS IS AN EXPERIMENT: ALPHA = 1, CHANGE RUN NAME
+    run_name = f"alpha_1_distill_teacher_outputs_{config['dataset']['name'].split('/')[-1].replace('-', '_')}_{config['dataset']['num_samples']}_samples_{config['training']['num_train_epochs']}_epochs_{config['dataset']['teacher_data']['top_k']}_top_k_{time.strftime('%m_%d_%H-%M')}"
     # Only create output directory and initialize wandb if not in debug mode
     if not DEBUG_MODE:
         # Output directory
@@ -394,13 +516,17 @@ if __name__ == "__main__":
     dataset = dataset.filter(lambda x: x["input"] == "")
     print(f"Filtered dataset to {len(dataset)} examples")
 
+
+    # Load the sparse logits
+    sparse_logits = torch.load(config["dataset"]["teacher_data"]["logits_path"])
+
+
     # First take a subset of the dataset if specified, then shuffle
     # This is because I want to know which samples are used for training
     if "num_samples" in config["dataset"]:
         dataset = dataset.select(range(config["dataset"]["num_samples"]))
+        sparse_logits = sparse_logits[:config["dataset"]["num_samples"]]
 
-    # Load the sparse logits
-    sparse_logits = torch.load(config["dataset"]["teacher_data"]["logits_path"])
     print(f"Loaded {len(sparse_logits)} sparse logits")
 
     if len(sparse_logits) != len(dataset):
@@ -498,7 +624,6 @@ if __name__ == "__main__":
             },
         )
 
-    teacher_lengths = [len(logits) for logits in sparse_logits]
     trainer = LogitsTrainer(
         model=student_model,
         processing_class=tokenizer,

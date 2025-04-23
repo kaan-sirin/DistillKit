@@ -13,3 +13,4 @@ wandb/
 *.tsv
 *.jsonl
 generated_tokens/
+*.mdc
