@@ -8,10 +8,13 @@ load_dotenv()
 HF_TOKEN = os.getenv("HF_TOKEN")
 
 
-def prefetch_dataset(config_path: str) -> None:
+def prefetch_dataset(config_path: str, dataset_config_path: str) -> None:
     with open(config_path) as f:
         config = yaml.safe_load(f)
-    dataset_config = config["dataset"]
+    with open(dataset_config_path) as f:
+        datasets = yaml.safe_load(f)
+        dataset_config = datasets[config["dataset"]]
+
     # if a subset is given, pass it; else drop the arg
     if dataset_config.get("subset"):
         load_dataset(dataset_config["name"], dataset_config["subset"], split=dataset_config["split"])
@@ -32,6 +35,7 @@ if __name__ == "__main__":
     os.environ.pop("HF_HUB_OFFLINE", None)
     os.environ.pop("HF_DATASETS_OFFLINE", None)
 
-    config_file = "cluster_config.yaml"
-    prefetch_dataset(config_file)
+    config_file = "config.yaml"
+    dataset_config_file = "datasets.yaml"
+    prefetch_dataset(config_file, dataset_config_file)
     prefetch_models(config_file)

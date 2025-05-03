@@ -1,4 +1,4 @@
-project_name: logit-distillation-code
+project_name: logit-distillation-code-cluster
 dataset: sahil2801/CodeAlpaca-20k
 models:
   teacher: meta-llama/Llama-3.2-3B-Instruct
