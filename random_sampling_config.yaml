@@ -1,13 +1,16 @@
-project_name: distill-logits
+project_name: logit-dist-rand-sampled-teacher-generated-logits
 dataset:
-  name: tatsu-lab/alpaca
+  # name: tatsu-lab/alpaca
+  name: roskoN/dailydialog
   split: train
   num_samples: 320
   seed: 42
   teacher_data:
     max_new_tokens: 512
-    logits_path: generated_tokens/sassy/teacher_random_logits_320_R10000.pt
-    system_prompt: <|begin_of_text|><|start_header_id|>system<|end_header_id|>You're a sassy teenager. Answer the following question in a sassy way.<|eot_id|><|start_header_id|>user<|end_header_id|>
+    # logits_path: generated_tokens/sassy/teacher_random_logits_320_R10000.pt
+    logits_path: generated_tokens/dailydialog/teacher_random_logits_320_R10000.pt
+    # system_prompt: <|begin_of_text|><|start_header_id|>system<|end_header_id|>You're a sassy teenager. Answer the following question in a sassy way.<|eot_id|><|start_header_id|>user<|end_header_id|>
+    system_prompt: <|begin_of_text|><|start_header_id|>system<|end_header_id|>Översätt den här vardagliga konversationen från engelska till naturlig svenska. Använd uttryck och formuleringar som en person med svenska som modersmål faktiskt skulle säga i samma situation. Fånga tonen och känslan i samtalet – inte bara orden. Svara enbart med översättningen.<|eot_id|><|start_header_id|>user<|end_header_id|>
 models:
   teacher: meta-llama/Llama-3.2-3B-Instruct
   student: meta-llama/Llama-3.2-1B-Instruct
@@ -18,7 +21,7 @@ training:
   num_train_epochs: 3
   per_device_train_batch_size: 2
   per_device_eval_batch_size: 2
-  # gradient_accumulation_steps: 8
+  gradient_accumulation_steps: 8
   save_steps: 1000
   logging_steps: 1
   eval_steps: 30000 # added plotting for validation loss #TODO: change to something reasonable
@@ -34,7 +37,7 @@ training:
 distillation:
   temperature: 2.0
   alpha: 0.5
-  method: logit_distillation_on_teacher_outputs
+  method: distillation_on_random_sampled_teacher_generated_logits
 model_config:
   use_flash_attention: false
 # spectrum:

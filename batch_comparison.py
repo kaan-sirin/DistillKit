@@ -39,7 +39,7 @@ def load_model(model_name_or_path):
     """Load model with optimizations for speed"""
     # Initialize logger
     logger = logging.getLogger(__name__)
-    
+
     try:
         if os.path.isdir(f"./results/{model_name_or_path}"):
             model_name_or_path = f"./results/{model_name_or_path}"
@@ -187,18 +187,34 @@ Nice-to-have reference statements:
             This is a blind evaluation.
             """
         return examples, evaluation_prompt
-    
+
     elif dataset_name == "tatsu-lab/alpaca":
         examples = [
             {
                 "prompt": x["instruction"],
                 "reference_answer": x["output"],
             }
-            for x in examples if x["input"] == ""
+            for x in examples
         ]
 
-        evaluation_prompt = ""
-        
+        evaluation_prompt = """
+You are an impartial judge evaluating two AI-generated answers to a given prompt.
+Your task is to determine which answer better satisfies two criteria:
+1. It answers the question accurately and reasonably.
+2. It maintains a consistent tone and style of a sassy teenager — informal, bold, a little sarcastic, but still engaging and intelligible.
+
+You will receive:
+- An instruction or question.
+- Two candidate answers: A and B.
+
+Evaluate both answers blindly. Focus on:
+- Correctness or reasonableness of the response.
+- How well the answer maintains the 'sassy teenager' style throughout.
+
+Choose the answer that best balances correctness and tone. Explain your choice in under 50 words with a clear and specific justification.
+Do not mention the style directly in your explanation — simply justify your pick based on tone and correctness without referring to the criteria.
+"""
+
         return examples, evaluation_prompt
     else:
         raise NotImplementedError(f"{dataset_name} is not implemented.")
@@ -238,7 +254,9 @@ def generate_responses_batch(model_dict, prompts, max_new_tokens=512):
     return batch_responses
 
 
-def get_gpt4o_judgment(evaluation_prompt, example, answer_a, answer_b):
+def get_gpt4o_judgment(
+    evaluation_prompt, example, answer_a, answer_b, include_reference_answer=False
+):
     class Judgment(BaseModel):
         better_answer: Literal["A", "B", "Neither"]
         explanation: str
@@ -247,20 +265,20 @@ def get_gpt4o_judgment(evaluation_prompt, example, answer_a, answer_b):
 
     try:
 
-        user_prompt = f"""**Question:**
-        
-        {example['prompt']}
+        user_prompt_parts = [f"**Question:**\n\n{example['prompt']}\n"]
 
-        **Reference answer:**
-        
-        {example['reference_answer']}
-        
-        **Answer A:** {answer_a}
-        
-        **Answer B:** {answer_b}
+        if include_reference_answer:
+            user_prompt_parts.append(
+                f"**Reference answer:**\n\n{example['reference_answer']}\n"
+            )
 
-        Which answer aligns better with the reference answer? Respond with your judgment and a concise explanation (<50 words) in the required JSON format.
-        """
+        user_prompt_parts.append(f"**Answer A:** {answer_a}\n")
+        user_prompt_parts.append(f"**Answer B:** {answer_b}\n")
+        user_prompt_parts.append(
+            "Which answer aligns better with the reference answer? Respond with your judgment and a concise explanation (<50 words) in the required JSON format."
+        )
+
+        user_prompt = "\n\n".join(user_prompt_parts)
 
         response = client.beta.chat.completions.parse(
             model="o3-mini",
@@ -286,24 +304,13 @@ def process_example_batch(
     model_1_dict: Dict,
     model_2_dict: Dict,
     randomize_order: bool = True,
+    include_reference_answer: bool = False,
 ) -> List[Tuple[str, Dict]]:
     """Process a batch of examples for comparison"""
 
     examples, evaluation_prompt = format_examples(
         examples, comparison_config["dataset"]["name"]
     )
-
-    cot_prompt = """
-        **Question:** The girls are trying to raise money for a carnival. Kim raises $320 more than Alexandra, who raises $430, and Maryam raises $400 more than Sarah, who raises $300. How much money, in dollars, did they all raise in total?
-
-        **Answer:**
-        Alexandra raises 430 dollars.
-        Kim raises 320+430=750 dollars.
-        Sarah raises 300 dollars.
-        Maryam raises 400+300=700 dollars.
-        In total, they raise 750+430+400+700=2280 dollars.
-        
-        """
 
     model_1_responses = generate_responses_batch(
         model_1_dict,
@@ -358,6 +365,7 @@ def process_example_batch(
                 input_data["example"],
                 input_data["response_a"],
                 input_data["response_b"],
+                include_reference_answer=include_reference_answer,
             )
             judgment_futures.append((future, input_data))
 
@@ -430,6 +438,7 @@ def compare_models_batch(
     output_file="comparisons/model_comparison.md",
     batch_size=8,
     generate_markdown=True,
+    include_reference_answer=False,
 ):
     """Compare models using batch processing for efficiency"""
     # Create directory for output if it doesn't exist
@@ -457,7 +466,12 @@ def compare_models_batch(
         current_batch = examples[batch_start:batch_end]
 
         # Process the current batch
-        batch_results = process_example_batch(current_batch, model_1_dict, model_2_dict)
+        batch_results = process_example_batch(
+            current_batch,
+            model_1_dict,
+            model_2_dict,
+            include_reference_answer=include_reference_answer,
+        )
 
         # Update accumulated judgments and write to file
         for i, (markdown_content, judgment_details) in enumerate(batch_results):
@@ -532,6 +546,9 @@ if __name__ == "__main__":
                 split=comparison_config["dataset"]["split"],
             )
         )
+        if comparison_config["dataset"]["name"] == "tatsu-lab/alpaca":
+            dataset = dataset.filter(lambda x: x["input"] == "")
+
         logger.info(f"Loaded {len(dataset)} examples")
     except Exception as e:
         logger.error(f"Error loading dataset: {e}")
@@ -591,8 +608,10 @@ if __name__ == "__main__":
         model_2_dict,
         selected_examples,
         output_file=output_file,
-        batch_size=4,  # Process 4 examples at a time
+        batch_size=16,
         generate_markdown=True,
+        include_reference_answer=comparison_config["dataset"]["name"]
+        != "tatsu-lab/alpaca",
     )
 
     logger.info("Comparison complete!")

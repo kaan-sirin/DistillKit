@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from transformers import AutoTokenizer
 # --------------------------------------------------------------------------- #
-def inspect(path: Path, n_examples: int = 3):
+def inspect(path: Path, n_examples: int = 3, show_histogram: bool = False):
     data = torch.load(path, map_location="cpu")   # list[ sequences ]
 
     n_seq           = len(data)
@@ -21,16 +21,18 @@ def inspect(path: Path, n_examples: int = 3):
           f"min {min(steps_per_seq)}  max {max(steps_per_seq)}")
     print(f"Unique tokens / step  : avg {st.mean(tokens_per_step):.2f} | "
           f"min {min(tokens_per_step)}  max {max(tokens_per_step)}")
-    print(f"Histogram (token‑count → #steps) :")
-    hist = Counter(tokens_per_step)
-    for k in sorted(hist):
-        print(f"  {k:2d} → {hist[k]}")
+
+    if show_histogram:
+        print(f"Histogram (token‑count → #steps) :")
+        hist = Counter(tokens_per_step)
+        for k in sorted(hist):
+            print(f"  {k:2d} → {hist[k]}")
 
     print("\nExamples:")
     for i in range(min(n_examples, n_seq)):
         print(f"\nSequence {i}")
-        for t, step in enumerate(data[i][:3]):        # first 3 steps
-            pairs = ', '.join(f"({tid},{prob:.3f})" for tid, prob in step[:6])
+        for t, step in enumerate(data[i][:5]):        # first 5 steps
+            pairs = ', '.join(f"({tid},{prob:.4f})" for tid, prob in step[:3])
             print(f"  step {t:2} | {len(step)} ids | {pairs} ...")
 
 # --------------------------------------------------------------------------- #
@@ -50,7 +52,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("file", type=str, help="*.pt file produced by sampling script")
     ap.add_argument("--n", type=int, default=3, help="# sequences to print")
+    ap.add_argument("--histogram", "-hist", action="store_true", help="show histogram of unique tokens per step")
     args = ap.parse_args()
 
-    inspect(Path(args.file), n_examples=args.n)
+    inspect(Path(args.file), n_examples=args.n, show_histogram=args.histogram)
     # print_first_n_sequences(Path("generated_tokens/sassy/teacher_random_logits_320_R300_tau1.0.pt"), n=3)

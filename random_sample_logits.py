@@ -1,10 +1,3 @@
-###############################################################################
-#  generate_random_sampled_logits.py
-#  -------------------------------------------------
-#  Save ≈K‑unique token–probability pairs per generated step using the
-#  unbiased importance‑sampling method described in “Sparse‑Logit Sampling”.
-#  ✔ unbiased  ✔ constant memory (no full‑vocab softmax on GPU)
-###############################################################################
 from pathlib import Path
 import os
 from tqdm import tqdm
@@ -12,21 +5,10 @@ import torch
 from torch import amp
 from datasets import load_dataset
 from batch_comparison import setup, load_model
-from distillation_utils import load_config
+from distillation_utils import load_config, format_dialog
 
 # --------------------------------------------------------------------------- #
 def random_sample_distribution(logits, draws=50, tau=1.0):
-    """
-    Args
-    ----
-    logits : 1‑D tensor (vocab,)
-    draws  : R  – number of proposal samples (with replacement)
-    tau    : τ – sampling temperature for proposal q_i ∝ p_i^τ
-    Returns
-    -------
-    ids    : tensor(K)          unique token ids
-    probs  : tensor(K)          unbiased teacher probs  (sum = 1)
-    """
     with torch.no_grad():
         p = torch.softmax(logits, dim=-1)                    # teacher p_i
         q = torch.pow(p, tau)                                # proposal
@@ -34,7 +16,7 @@ def random_sample_distribution(logits, draws=50, tau=1.0):
 
         idx = torch.multinomial(q, draws, replacement=True)  # R samples with replacement
         # idx is a tensor of shape (R,) containing the indices of the sampled tokens
-        # accumulate importance weights 
+        # accumulate weights 
         # when tau = 1, this will be equal to how many times the token was sampled
         w = torch.zeros_like(p).scatter_add_(0, idx, p[idx] / q[idx])
         ids = (w > 0).nonzero(as_tuple=True)[0]              # unique ids
@@ -63,7 +45,8 @@ def generate_and_save_random_sampled_logits(
 
     # ------------------------------------------------------------------ data
     ds = load_dataset(dataset_name, dataset_subset, split=dataset_split)
-    ds = ds.filter(lambda x: x["input"] == "")               # alpaca quirk
+    if dataset_name == "tatsu-lab/alpaca":
+        ds = ds.filter(lambda x: x["input"] == "")               # alpaca quirk
     num_samples = min(len(ds), num_samples or len(ds))
 
     model, tok = load_model(model_name)
@@ -72,7 +55,7 @@ def generate_and_save_random_sampled_logits(
 
     # ------------------------------------------------------------------ out
     out_dir = Path(output_dir or
-                   f"distillation_data/{model_name.split('/')[-1]}_{dataset_name.split('/')[-1]}")
+                   f"generated_tokens/{model_name.split('/')[-1]}_{dataset_name.split('/')[-1]}")
     out_dir.mkdir(parents=True, exist_ok=True)
     all_steps = []  # list[list[ list[(id,prob)] ]]
 
@@ -83,7 +66,11 @@ def generate_and_save_random_sampled_logits(
         prompts = []
         end_marker = "<|eot_id|>"
         for ex in ds.select(range(b0, b1)):
-            prompt = (system_prompt or "") + ex["instruction"] + end_marker
+            if dataset_name == "tatsu-lab/alpaca":
+                prompt = (system_prompt or "") + ex["instruction"] + end_marker
+            elif dataset_name == "roskoN/dailydialog":
+                dialog = format_dialog(ex["utterances"])
+                prompt = (system_prompt or "") + dialog + end_marker
             prompts.append(prompt)
 
         inp = tok(prompts, padding=True, return_tensors="pt").to(model.device)
@@ -115,7 +102,10 @@ def generate_and_save_random_sampled_logits(
                 token_num = 0
                 for token_prob_pairs in (step_pairs):
                     token_num += len(token_prob_pairs)
-                print(f"Average number of tokens: {token_num / len(step_pairs)}")
+                if len(step_pairs) > 0:
+                    print(f"Average number of tokens: {token_num / len(step_pairs)}")
+                else:
+                    print("Sequence was empty.")
                 print(f"###########################################\n")
             all_steps.append(step_pairs) 
             
@@ -129,7 +119,7 @@ def generate_and_save_random_sampled_logits(
 
 # --------------------------------------------------------------------------- #
 if __name__ == "__main__":
-    cfg = load_config("experimental_config.yaml")
+    cfg = load_config("random_sampling_config.yaml")
     generate_and_save_random_sampled_logits(
         model_name=cfg["models"]["teacher"],
         dataset_name=cfg["dataset"]["name"],

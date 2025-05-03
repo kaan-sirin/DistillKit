@@ -365,7 +365,7 @@ class LogitsTrainer(SFTTrainer):
         return padded_logits
 
     def distillation_loss(self, student_logits, teacher_logits, original_loss):
-        reverse_kld = True
+        reverse_kld = False
         
         student_logits_scaled = (
             student_logits / self.config["distillation"]["temperature"]
@@ -396,20 +396,20 @@ class LogitsTrainer(SFTTrainer):
                 reduction='none'
             ).sum(dim=-1)
         
-        if (self.debug and token_kl.shape[0] == 2) or (self.state.global_step % self.args.gradient_accumulation_steps == 0): # Only if batch size is 2
-            print_logits = True
-            print(f"\n\n######################### KL DIVERGENCE #########################")
-            print(f"# First sequence:")
-            # Printing in the following format: (student_token, probability), (teacher_token, probability), kl_divergence
-            kl_div_first = 0
-            for i in range(len(token_kl[0, valid_mask[0]])):
-                kl_div_first += token_kl[0, valid_mask[0]][i].item()
-                if print_logits:
-                    top_3 = torch.topk(teacher_distribution[0, i], 3)
-                    teacher_print = f"[({self.processing_class.decode(top_3.indices[0].item())}, {top_3.values[0].item():.2f}) / ({self.processing_class.decode(top_3.indices[1].item())}, {top_3.values[1].item():.2f}) / ({self.processing_class.decode(top_3.indices[2].item())}, {top_3.values[2].item():.2f})]"
-                    print(f"# Token {i}: ({self.processing_class.decode(student_logits_scaled[0, i].argmax())}, {student_distribution[0, i].max().item():.2f}), {teacher_print}, {token_kl[0, valid_mask[0]][i].item():.2f}")
-            print(f"# Num of active tokens: {valid_mask[0].sum().item()}")
-            print(f"# Sum of KL divergence: {kl_div_first}\n\n")
+        # if (self.debug and token_kl.shape[0] == 2) or (self.state.global_step % self.args.gradient_accumulation_steps == 0): # Only if batch size is 2
+        #     print_logits = True
+        #     print(f"\n\n######################### KL DIVERGENCE #########################")
+        #     print(f"# First sequence:")
+        #     # Printing in the following format: (student_token, probability), (teacher_token, probability), kl_divergence
+        #     kl_div_first = 0
+        #     for i in range(len(token_kl[0, valid_mask[0]])):
+        #         kl_div_first += token_kl[0, valid_mask[0]][i].item()
+        #         if print_logits:
+        #             top_3 = torch.topk(teacher_distribution[0, i], 3)
+        #             teacher_print = f"[({self.processing_class.decode(top_3.indices[0].item())}, {top_3.values[0].item():.2f}) / ({self.processing_class.decode(top_3.indices[1].item())}, {top_3.values[1].item():.2f}) / ({self.processing_class.decode(top_3.indices[2].item())}, {top_3.values[2].item():.2f})]"
+        #             print(f"# Token {i}: ({self.processing_class.decode(student_logits_scaled[0, i].argmax())}, {student_distribution[0, i].max().item():.2f}), {teacher_print}, {token_kl[0, valid_mask[0]][i].item():.2f}")
+        #     print(f"# Num of active tokens: {valid_mask[0].sum().item()}")
+        #     print(f"# Sum of KL divergence: {kl_div_first}\n\n")
             # TODO: Uncomment this when batch size is 2
             # print(f"#\n# Second sequence:")                 
             # kl_div_second = 0
@@ -424,7 +424,7 @@ class LogitsTrainer(SFTTrainer):
             
             # print(f"#\n# Total mean KL divergence:")
             # print(f"# Mean KL divergence after scaling by temperature: {(kl_div_first + kl_div_second)/(valid_mask[0].sum().item() + valid_mask[1].sum().item()) * (self.config['distillation']['temperature'] ** 2)}")
-            print(f"#############################################################\n")
+            # print(f"#############################################################\n")
 
        
         # Apply mask and normalize by number of actual tokens
@@ -481,7 +481,7 @@ class SparseLogitsCollator(DefaultDataCollator):
 
 if __name__ == "__main__":
     #debug switch
-    DEBUG_MODE = True
+    DEBUG_MODE = False
 
     load_dotenv()
     HF_TOKEN = os.getenv("HF_TOKEN")

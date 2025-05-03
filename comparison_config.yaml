@@ -1,21 +1,20 @@
 comparison:
-  name: reasoning_math_30_samples_3B_vs_1B
+  name: sassy_distilled_vs_sft
   max_new_tokens: 512
   models:
     model_1:
-      name: meta-llama/Llama-3.2-3B-Instruct
+      name: results/sparse_kd_student_20250422_114315_final_10000
     model_2:
-      name: meta-llama/Llama-3.2-1B-Instruct
+      name: results/sft_distill_alpaca_320samples_3epochs_04_08_16_08
 
 
 
 dataset:
-  name: openai/gsm8k
-  subset: main
-  split: test
-  seed: 42  
-  num_samples: 30
-  start_index: 100
+  name: tatsu-lab/alpaca
+  split: train
+  seed: 42
+  num_samples: 100
+  start_index: 30000
   random_sample: false
 
 
@@ -34,6 +33,13 @@ dataset:
   # start_index: 0
   # random_sample: false
 
+  # name: openai/gsm8k
+  # subset: main
+  # split: test
+  # seed: 42  
+  # num_samples: 30
+  # start_index: 100
+  # random_sample: false
 
 
 # Model names

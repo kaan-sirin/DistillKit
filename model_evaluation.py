@@ -2,6 +2,7 @@ import os
 import random
 import json
 from datetime import datetime
+import re
 import torch
 from tqdm import tqdm
 from datasets import load_dataset
@@ -23,7 +24,6 @@ def generate_responses(
             max_new_tokens=max_new_tokens,
             do_sample=False,
             num_beams=1,
-            temperature=1.0,
             top_p=1.0,
             no_repeat_ngram_size=3,
             repetition_penalty=1.2,
@@ -211,16 +211,38 @@ def ask_model_question(
 
 
 if __name__ == "__main__":
-    # distilled = "results/distill_teacher_outputs_alpaca_320_samples_3_epochs_96_top_k_04_15_14-22"
-    # distilled = "results/distill_teacher_outputs_alpaca_320_samples_3_epochs_3_top_k_04_15_16-24"
-    # distilled = "results/distill_teacher_outputs_alpaca_320_samples_3_epochs_3_top_k_04_17_10-20"
-    # distilled = "results/alpha_1_distill_teacher_outputs_alpaca_320_samples_3_epochs_96_top_k_04_20_00-50"
-    # distilled = "results/alpha_1_distill_teacher_outputs_alpaca_320_samples_3_epochs_3_top_k_04_20_00-42"
-    # distilled = "results/alpha_1_distill_teacher_outputs_alpaca_320_samples_3_epochs_3_top_k_04_20_22-42"
-    distilled_small = "results/sparse_kd_student_20250421_230313_final_1000"
-    distilled_large = "results/sparse_kd_student_20250422_114315_final_10000"
+    top_k_forward = (
+        "results/top_k_forward_alpaca_320_samples_3_epochs_3_top_96_04_24_13-14"
+    )
+    top_k_reverse = (
+        "results/top_k_reverse_alpaca_320_samples_3_epochs_3_top_96_04_24_12-30"
+    )
+    random_sample_small = "results/sparse_kd_student_20250421_230313_final_1000"
+    random_sample = "results/sparse_kd_student_20250422_114315_final_10000"
     sft = "results/sft_distill_alpaca_320samples_3epochs_04_08_16_08"
     teacher = "meta-llama/Llama-3.2-3B-Instruct"
+
+    code_9600 = (
+        "distilled_models/CodeAlpaca_20k_forward_9600_samples_3_epochs_05_01_02_27"
+    )
+
+    # texts = [
+    #     "After weeks of relentless rain, the sun finally broke through the clouds this afternoon.",
+    #     "She whispered the secret confidently, knowing it would change their plans forever.",
+    #     "The sun was shining brightly, and the birds were singing sweetly.",
+    # ]
+    # for text in texts:
+    #     print(f"Text: {text}")
+    #     print("-" * 50)
+    #     print(
+    #         ask_model_question(
+    #             "results/sparse_kd_student_translation_20250502_120451_320_samples_10000",
+    #             text,
+    #             skip_special_tokens=True,
+    #         )
+    #     )
+    #     print("=" * 50)
+    # exit()
 
     # Example usage
     # evaluate_model(
@@ -237,26 +259,78 @@ if __name__ == "__main__":
     # )
 
     # Edit the model name and question below for quick testing
-    # questions = ["Which power block won the second world war?", "What color is your hair?", "Introduce yourself in 100 words"]
-    questions = ["What's your favorite thing to do?", "Which team is better, Barca or Real?", "If a meteorite hits the earth, what will happen?"]
+    translation_prompt = "Translate the following English sentence into idiomatic Swedish. Focus on natural, fluent phrasing that a native speaker would use in everyday conversation, not just literal translations. Maintain the meaning and tone of the original. Answer with only the Swedish translation, no other text."
+    questions = [
+        "After weeks of relentless rain, the sun finally broke through the clouds this afternoon.",
+        "She whispered the secret confidently, knowing it would change their plans forever.",
+        "The sun was shining brightly, and the birds were singing sweetly.",
+        "Which power block won the second world war?",
+        "Explain what magnetism is as if I were a 10-year-old, using a real-world analogy.",
+        "List step‑by‑step instructions for cooking a perfect omelette, including tips to avoid common mistakes.",
+        "Summarize the process of photosynthesis in two sentences, preserving the key facts and tone.",
+        "Write a 6‑line poem in the style of Shakespeare about the changing seasons.",
+        "Given this Python function stub, complete it to compute the nth Fibonacci number efficiently:\n```python\ndef fib(n):\n    # your code here\n```",
+    ]
 
-    # questions = [
-    #     "Explain what quantum entanglement is as if I were a 10‑year‑old, using a real‑world analogy.",
-    #     "List step‑by‑step instructions for cooking a perfect omelette, including tips to avoid common mistakes.",
-    #     "Summarize the process of photosynthesis in two sentences, preserving the key facts and tone.",
-    #     "Write a 6‑line poem in the style of Robert Frost about the changing seasons.",
-    #     "Given this Python function stub, complete it to compute the nth Fibonacci number efficiently:\n```python\ndef fib(n):\n    # your code here\n```",
-    # ]
-    for question in questions:
-        print("Question:")
-        print(question)
-        print("-" * 50)
-        print("Distilled model (with sparser logits):")
-        print(ask_model_question(distilled_small, question, skip_special_tokens=False))
-        print("-" * 50)
-        print("Distilled model (with denser logits):")
-        print(ask_model_question(distilled_large, question, skip_special_tokens=False))
-        print("-" * 50)
-        print("SFT model:")
-        print(ask_model_question(sft, question, skip_special_tokens=False))
-        print("#" * 100)
+    math_prompt = "Think in enumerated steps internally, then present only the final answer externally."
+    math_questions = [
+        "A school sold 128 tickets to a play on Monday and twice as many on Tuesday. If each ticket costs $7, how much money did the school make from ticket sales on those two days?",
+        "Emma read 18 pages of a book on each weekday and 45 pages on each weekend day. After two full weeks, how many pages has she finished?",
+        "A bakery uses 250 g of flour for one loaf of bread and 120 g for one batch of cookies. If the bakery has 5 kg of flour and makes 8 batches of cookies, how many full loaves can it still bake?",
+        "A rectangular garden is 6 m wide. Its perimeter is 40 m. What is the garden’s length?",
+        "A jar contains red, blue, and green marbles in the ratio 3 : 4 : 5. If there are 48 blue marbles, how many marbles are in the jar altogether?",
+    ]
+
+    code_questions = [
+        #         """Implement the function f that takes n as a parameter,
+        # and returns a list of size n, such that the value of the element at index i is the factorial of i if i is even
+        # or the sum of numbers from 1 to i otherwise.
+        # i starts from 1.
+        # the factorial of i is the multiplication of the numbers from 1 to i (1 * 2 * ... * i).
+        # Example:
+        # f(5) == [1, 2, 6, 24, 15]
+        # """,
+        "Write a function in HTML for creating a table of n rows and m columns.",
+    ]
+
+    # for question in code_questions:
+    #     print("Question:")
+    #     print(question)
+    #     print("-" * 50)
+    #     print("Teacher:")
+    #     print(ask_model_question(teacher, question, skip_special_tokens=True))
+    #     print("-" * 50)
+    #     print("Distilled model:")
+    #     print(ask_model_question(code_9600, question, skip_special_tokens=True))
+    #     print("-" * 50)
+
+    conversation = [
+        "Say , Jim , how about going for a few beers after dinner ?",
+        "You know that is tempting but is really not good for our fitness .",
+        "What do you mean ? It will help us to relax .",
+        "Do you really think so ? I don't . It will just make us fat and act silly . Remember last time ?",
+        "I guess you are right.But what shall we do ? I don't feel like sitting at home .",
+        "I suggest a walk over to the gym where we can play singsong and meet some of our friends .",
+        "That's a good idea . I hear Mary and Sally often go there to play pingpong.Perhaps we can make a foursome with them .",
+        "Sounds great to me ! If they are willing , we could ask them to go dancing with us.That is excellent exercise and fun , too .",
+        "Good.Let ' s go now .",
+        "All right .",
+    ]
+    convo = ""
+    for i, turn in enumerate(conversation):
+        # Remove space before punctuation
+        turn = re.sub(r"\s+([^\w\s])", r"\1", turn)
+        # Remove space after punctuation
+        turn = re.sub(r"([^\w\s])\s+", r"\1", turn)
+        # Add space after punctuation (but not apostrophe) if followed by a letter/digit
+        turn = re.sub(r"([^\w\s'])(?=[a-zA-Z0-9])", r"\1 ", turn)
+        if i % 2 == 0:
+            convo += "A: " + turn + "\n"
+        else:
+            convo += "B: " + turn + "\n"
+
+    text = f"""Översätt den här vardagliga konversationen från engelska till naturlig svenska. Använd uttryck och formuleringar som en person med svenska som modersmål faktiskt skulle säga i samma situation. Fånga tonen och känslan i samtalet – inte bara orden. Svara enbart med översättningen.    
+    
+{convo}
+    """
+    print(text)

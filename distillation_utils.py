@@ -1,3 +1,4 @@
+import re
 from dotenv import load_dotenv
 import matplotlib.pyplot as plt
 from transformers import TrainerCallback
@@ -6,9 +7,17 @@ import os
 import yaml
 from datasets import load_dataset
 from transformers import AutoTokenizer
+import torch
+import torch.nn.functional as F
 
 
-def medqa_format(example):
+USER_PROMPT_START = f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>"
+USER_PROMPT_END = f"<|eot_id|>"
+ASSISTANT_PROMPT_START = f"<|start_header_id|>assistant<|end_header_id|>"
+ASSISTANT_PROMPT_END = f"<|eot_id|>"
+
+
+def medqa_swe_format(example):
     try:
         text = (
             "Du är en medicinsk expert. Svara på följande flervalsfråga. \n\n"
@@ -38,16 +47,43 @@ def medlfqa_format(example):
         raise
 
 
+def decode_sparse_sequence(sequence, tokenizer):
+    decoded_output = ""
+    for token in sequence:
+        token.sort(key=lambda pair: pair[1], reverse=True)
+        most_probable_id = int(token[0][0])        
+        decoded_output += tokenizer.decode(most_probable_id)
+        
+    return decoded_output
+
 def alpaca_format(example, tokenizer):
     try:
         user_prompt_start = f"<|start_header_id|>user<|end_header_id|>"
         user_prompt_end = f"<|eot_id|>"
-        decoded_output = ""
-        sequence = example["sparse_logits"]
-        for token in sequence:
-            token.sort(key=lambda x: x[1], reverse=True)
-            decoded_output += tokenizer.decode(int(token[0][0]))
+        decoded_output = decode_sparse_sequence(example["sparse_logits"], tokenizer)
         text = f"{user_prompt_start}{example['instruction']}{user_prompt_end}{decoded_output}"
+        return {"text": text}
+    except Exception as e:
+        print(f"Sample keys: {list(example.keys())}")
+        print(f"Error formatting example: {e}")
+        raise
+    
+def dailydialog_format(example, tokenizer):
+    try:
+        decoded_output = decode_sparse_sequence(example["sparse_logits"], tokenizer)
+        text = f"{USER_PROMPT_START}\n\n{format_dialog(example['utterances']) + USER_PROMPT_END}{decoded_output}"
+        return {"text": text}
+    except Exception as e:
+        print(f"Sample keys: {list(example.keys())}")
+        print(f"Error formatting example: {e}")
+        raise
+
+def code_alpaca_format(example):
+    try:
+        text = f"{USER_PROMPT_START}\n\n{example['instruction']}"
+        if example.get("input"):
+            text += f"\n\n{example['input']}"
+        text += f"{USER_PROMPT_END}{ASSISTANT_PROMPT_START}\n\n{example['output']}{ASSISTANT_PROMPT_END}"
         return {"text": text}
     except Exception as e:
         print(f"Sample keys: {list(example.keys())}")
@@ -73,332 +109,40 @@ def load_config(config_path="config.yaml"):
         raise
 
 
-class LivePlotCallback(TrainerCallback):
-    def __init__(
-        self,
-        plot_path="./loss_plot.png",
-        update_freq=20,
-        moving_avg_window=10,
-        distillation_method=None,
-        config=None,
-    ):
-        self.losses = []
-        self.loss_kds = []
-        self.original_losses = []
-        self.learning_rates = []
-        self.steps = []
-        self.plot_path = plot_path
-        self.update_freq = update_freq
-        self.moving_avg_window = moving_avg_window  # Make window size configurable
-        self.distillation_method = distillation_method
-        self.config = config
-        # Validation metrics
-        self.eval_losses = []
-        self.eval_steps = []
+def tokenize_function(examples, tokenizer, config):
+    return tokenizer(
+        examples["text"],
+        truncation=True,
+        max_length=config["tokenizer"]["max_length"],
+        padding="max_length",
+    )
 
-        # For accumulating losses over gradient accumulation steps
-        self.accumulated_loss_kd = 0
-        self.accumulated_original_loss = 0
-        self.accumulation_count = 0
-        self.current_step = -1
+def reverse_kld(student_logits, teacher_logits, reduction="per_token"):
+    log_ps = F.log_softmax(student_logits, dim=-1)
+    ps = log_ps.exp()  # p_s
 
-        self.epoch_end_steps = []
-        self.last_epoch = -1
+    with torch.no_grad():
+        log_pt = F.log_softmax(teacher_logits, dim=-1)  # log p_t
 
-    def on_train_end(self, args, state, control, **kwargs):
-        if self.accumulation_count > 0:
-            # Calculate proper averages
-            avg_loss_kd = self.accumulated_loss_kd / self.accumulation_count
-            avg_original_loss = self.accumulated_original_loss / self.accumulation_count
+    per_token_kld = (ps * (log_ps - log_pt)).sum(dim=-1) # shape will be (batch_size, seq_len)
 
-            # Only append if it's actually new data
-            if self.current_step > self.steps[-1]:
-                self.losses.append(
-                    state.log_history[-1].get("loss") if state.log_history else None
-                )
-                self.steps.append(self.current_step)
-                self.loss_kds.append(avg_loss_kd)
-                self.original_losses.append(avg_original_loss)
-                self.learning_rates.append(
-                    self.learning_rates[-1] if self.learning_rates else 0
-                )
+    if reduction == "none":
+        return per_token_kld
+    elif reduction == "mean":
+        # average over all tokens in the batch
+        return per_token_kld.mean()
+    elif reduction == "sum":
+        # sum over all tokens in the batch
+        return per_token_kld.sum()
+    elif reduction == "batchmean":
+        # sum over all tokens and divide by the batch size
+        batch_size = student_logits.shape[0]
+        return per_token_kld.sum() / batch_size
+    else:
+        raise ValueError(f"Invalid reduction type: {reduction}. Choose from 'none', 'mean', 'sum', 'batchmean'.")
+    
+  
 
-        self.update_plot()
-        print(f"Final plot saved to {self.plot_path}")
-
-    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
-        """Called after evaluation."""
-        print("Evaluation callback called with metrics:", metrics)  # Debug print
-        if metrics is not None and "eval_loss" in metrics:
-            eval_loss = metrics["eval_loss"]
-            self.eval_losses.append(eval_loss)
-            self.eval_steps.append(self.current_step)
-            print(f"Added evaluation point: step={self.current_step}, loss={eval_loss}")
-            self.update_plot()
-
-    def update_plot(self):
-        if not self.losses:
-            return
-
-        method_title = ""
-        if self.distillation_method:
-            formatted_method = " ".join(
-                word.capitalize() for word in self.distillation_method.split("_")
-            )
-            method_title = f" ({formatted_method})"
-
-        colors = {
-            "main": {
-                "total_loss": "#1f77b4",  # Blue
-                "kd_loss": "#ff7f0e",  # Orange
-                "original_loss": "#2ca02c",  # Green
-                "learning_rate": "#9467bd",  # Purple
-                "eval_loss": "#d62728",  # Red
-            },
-            "avg": {
-                "total_loss": "#7fb1d9",  # Light blue
-                "kd_loss": "#ffb97f",  # Light orange
-                "original_loss": "#7fcc7f",  # Light green
-                "eval_loss": "#ff9896",  # Light red
-            },
-        }
-
-        # Create figure with subplots
-        fig_size = (10, 15) if len(self.eval_losses) > 0 else (10, 12)
-        num_plots = 5 if len(self.eval_losses) > 0 else 4
-        fig, axes = plt.subplots(num_plots, 1, figsize=fig_size)
-
-        if num_plots == 5:
-            ax1, ax2, ax3, ax4, ax5 = axes
-        else:
-            ax1, ax2, ax3, ax4 = axes
-
-        fig.suptitle(f"Training Progress{method_title}", fontsize=16, fontweight="bold")
-
-        # Plot total loss
-        ax1.plot(
-            self.steps,
-            self.losses,
-            color=colors["main"]["total_loss"],
-            linestyle="-",
-            linewidth=1.5,
-        )
-        self._add_moving_average(
-            ax1, self.losses, self.steps, color=colors["avg"]["total_loss"]
-        )
-        ax1.set_title("Training Loss", fontweight="bold")
-        ax1.set_xlabel("Step")
-        ax1.set_ylabel("Loss")
-        ax1.grid(True, alpha=0.3)
-        self._add_epoch_lines(ax1)
-
-        # Plot validation loss if available
-        if len(self.eval_losses) > 0:
-            ax1.plot(
-                self.eval_steps,
-                self.eval_losses,
-                color=colors["main"]["eval_loss"],
-                linestyle="-",
-                linewidth=1.5,
-                marker="o",
-                markersize=4,
-                label="Validation Loss",
-            )
-            ax1.legend(loc="upper right")
-
-        # Plot knowledge distillation loss
-        if any(x is not None for x in self.loss_kds):
-            ax2.plot(
-                self.steps,
-                self.loss_kds,
-                color=colors["main"]["kd_loss"],
-                linestyle="-",
-                linewidth=1.5,
-            )
-            self._add_moving_average(
-                ax2, self.loss_kds, self.steps, color=colors["avg"]["kd_loss"]
-            )
-            ax2.set_title("Knowledge Distillation Loss", fontweight="bold")
-            ax2.set_xlabel("Step")
-            ax2.set_ylabel("Loss KD")
-            ax2.grid(True, alpha=0.3)
-            self._add_epoch_lines(ax2)
-
-        # Plot original loss
-        if any(x is not None for x in self.original_losses):
-            ax3.plot(
-                self.steps,
-                self.original_losses,
-                color=colors["main"]["original_loss"],
-                linestyle="-",
-                linewidth=1.5,
-            )
-            self._add_moving_average(
-                ax3,
-                self.original_losses,
-                self.steps,
-                color=colors["avg"]["original_loss"],
-            )
-            ax3.set_title("Student Cross-Entropy Loss", fontweight="bold")
-            ax3.set_xlabel("Step")
-            ax3.set_ylabel("Cross-Entropy Loss")
-            ax3.grid(True, alpha=0.3)
-            self._add_epoch_lines(ax3)
-
-        # Plot learning rate
-        if any(x is not None for x in self.learning_rates):
-            ax4.plot(
-                self.steps,
-                self.learning_rates,
-                color=colors["main"]["learning_rate"],
-                linestyle="-",
-                linewidth=1.5,
-            )
-            ax4.set_title("Learning Rate", fontweight="bold")
-            ax4.set_xlabel("Step")
-            ax4.set_ylabel("Learning Rate")
-            ax4.grid(True, alpha=0.3)
-
-        # Add a separate plot for validation loss if available
-        if len(self.eval_losses) > 0:
-            ax5.plot(
-                self.eval_steps,
-                self.eval_losses,
-                color=colors["main"]["eval_loss"],
-                linestyle="-",
-                linewidth=1.5,
-                marker="o",
-                markersize=6,
-            )
-            ax5.set_title("Validation Loss", fontweight="bold")
-            ax5.set_xlabel("Step")
-            ax5.set_ylabel("Loss")
-            ax5.grid(True, alpha=0.3)
-            self._add_epoch_lines(ax5)
-
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(os.path.abspath(self.plot_path)), exist_ok=True)
-
-        # Save figure to file and close
-        plt.tight_layout(rect=[0, 0, 1, 0.97])  # Make room for the suptitle
-        plt.savefig(self.plot_path)
-        plt.close(fig)
-
-    def _add_moving_average(self, ax, values, steps, color="#ff7f0e", **kwargs):
-        """Helper method to add moving average to a plot."""
-        # min num of points needed for moving average
-        min_points = 5
-
-        if len(values) > min_points:
-            # filter out None values if present
-            valid_indices = [i for i, v in enumerate(values) if v is not None]
-            if len(valid_indices) <= min_points:
-                return
-
-            valid_values = [values[i] for i in valid_indices]
-            valid_steps = [steps[i] for i in valid_indices]
-
-            # window size starts smaller, grow to max_window
-            actual_window = min(
-                self.moving_avg_window, max(min_points, len(valid_values) // 5)
-            )
-
-            cumsum = np.cumsum(np.insert(valid_values, 0, 0))
-            avg_values = (
-                cumsum[actual_window:] - cumsum[:-actual_window]
-            ) / actual_window
-            plot_steps = valid_steps[
-                actual_window - 1 : len(avg_values) + actual_window - 1
-            ]
-
-            ax.plot(
-                plot_steps,
-                avg_values,
-                color=color,
-                linewidth=2,
-                alpha=0.75,
-                label=f"Moving Avg ({actual_window} steps)",
-            )
-            ax.legend(loc="upper right")
-
-    def record_metrics(
-        self,
-        step,
-        loss,
-        loss_kd,
-        original_loss,
-        gradient_accumulation_steps,
-        learning_rate,
-        epoch,
-    ):
-        is_new_step = step != self.current_step
-
-        if is_new_step and self.accumulation_count > 0 and self.current_step >= 0:
-            # self.losses.append(loss)  # Use the trainer's accumulated loss
-            alpha = self.config["distillation"]["alpha"]
-            calculated_total = alpha * (
-                self.accumulated_loss_kd / gradient_accumulation_steps
-            ) + (1 - alpha) * (
-                self.accumulated_original_loss / gradient_accumulation_steps
-            )
-            print(f"\n\nCalculated loss: {calculated_total}")
-            print(f"Trainer's loss: {loss}\n\n")
-            self.losses.append(calculated_total)
-            self.steps.append(self.current_step)
-            self.loss_kds.append(self.accumulated_loss_kd / gradient_accumulation_steps)
-            self.original_losses.append(
-                self.accumulated_original_loss / gradient_accumulation_steps
-            )
-            self.learning_rates.append(learning_rate)
-
-            # if epoch has changed since last step
-            current_epoch_int = int(epoch)
-            if current_epoch_int != self.last_epoch and self.last_epoch != -1:
-                self.epoch_end_steps.append(self.current_step)
-                print(f"End of epoch {self.last_epoch} at step {self.current_step}")
-            self.last_epoch = current_epoch_int
-
-            # Update plot periodically
-            if step > 0 and step % self.update_freq == 0:
-                self.update_plot()
-                # print(f"Updated plot at step {step}, saved to {self.plot_path}")
-
-            # Reset accumulators
-            self.accumulated_loss_kd = 0
-            self.accumulated_original_loss = 0
-            self.accumulation_count = 0
-
-        # Update the current step
-        self.current_step = step
-
-        # Accumulate component losses
-        self.accumulated_loss_kd += loss_kd
-        self.accumulated_original_loss += original_loss
-        self.accumulation_count += 1
-
-    def _add_epoch_lines(self, ax):
-        """Helper method to add vertical lines at epoch boundaries."""
-        if not self.epoch_end_steps:
-            return
-
-        for i, step in enumerate(self.epoch_end_steps):
-            # Add vertical line
-            line = ax.axvline(
-                x=step, color="red", linestyle="--", linewidth=1.2, alpha=0.7
-            )
-
-            # Add a text label for the epoch
-            y_pos = ax.get_ylim()[1] * 0.95  # Position near the top
-            ax.text(
-                step + 5,
-                y_pos,
-                f"Epoch {i+1}",
-                color="red",
-                fontsize=8,
-                ha="left",
-                va="top",
-                bbox=dict(facecolor="white", alpha=0.7, edgecolor="none", pad=1),
-            )
 
 
 def get_max_token_length(
@@ -410,11 +154,9 @@ def get_max_token_length(
     max_index = 1000
     for i, example in enumerate(dataset):
         try:
-            # Format the example
-            formatted_text = medlfqa_format(example)
 
             # Tokenize without padding or truncation to get true length
-            tokens = tokenizer(formatted_text["text"], truncation=False, padding=False)
+            tokens = tokenizer(example["text"], truncation=False, padding=False)
 
             # Get token count
             length = len(tokens.input_ids)
@@ -425,7 +167,7 @@ def get_max_token_length(
                 max_length = length
                 max_index = i
             # Print progress occasionally
-            if i % 100 == 0:
+            if i % 1000 == 0:
                 print(f"Processed {i} examples. Current max length: {max_length}")
 
         except Exception as e:
@@ -505,45 +247,62 @@ def get_max_token_length(
     return max_length, max_index, stats
 
 
+def format_dialog(utterances):
+    dialog = ""
+    for i, turn in enumerate(utterances):
+        # Remove space before punctuation
+        turn = re.sub(r'\s+([^\w\s])', r'\1', turn)
+        # Remove space after punctuation
+        turn = re.sub(r'([^\w\s])\s+', r'\1', turn)
+        # Add space after punctuation (but not apostrophe) if followed by a letter/digit
+        turn = re.sub(r"([^\w\s'])(?=[a-zA-Z0-9])", r'\1 ', turn)
+        if i % 2 == 0:
+            dialog += "Person A: " + turn + "\n"
+        else:
+            dialog += "Person B: " + turn + "\n"
+    return dialog
+
+
 if __name__ == "__main__":
 
     load_dotenv()
     HF_TOKEN = os.getenv("HF_TOKEN")
     config = load_config()
+
+    # ---- Load dataset --------------------------------------------------------
+    dataset_name = config["dataset"]
+    dataset_config = load_config("datasets.yaml")[dataset_name]
     dataset = (
         load_dataset(
-            config["dataset"]["name"],
-            config["dataset"]["subset"],
-            split=config["dataset"]["split"],
+            dataset_name,
+            dataset_config["subset"],
+            split=dataset_config["split"],
         )
-        if config["dataset"].get("subset")
-        else load_dataset(config["dataset"]["name"], split=config["dataset"]["split"])
+        if dataset_config.get("subset")
+        else load_dataset(dataset_name, split=dataset_config["split"])
     )
 
-    dataset = dataset.map(medlfqa_format)
-    print(dataset[0].keys())  # contains 'text'
-    print(dataset[0]["text"])
+    dataset = dataset.map(code_alpaca_format)
+    print("\n\n", dataset[0]["text"])
+    # --------------------------------------------------------------------------
 
-    student_tokenizer = AutoTokenizer.from_pretrained(
+    # ---- Get max token length ------------------------------------------------
+    tokenizer = AutoTokenizer.from_pretrained(
         config["models"]["student"], token=HF_TOKEN
     )
-    max_tokens, max_index, token_stats = get_max_token_length(
-        dataset, student_tokenizer
-    )
+    max_tokens, max_index, token_stats = get_max_token_length(dataset, tokenizer)
     print(f"Max token length: {max_tokens}, Max index: {max_index}")
+    print(f"\n\nToken stats: {token_stats}")
 
-    # Print detailed statistics
-    print("\nToken Length Statistics:")
-    print(f"Mean: {token_stats['mean']:.2f}")
-    print(f"Median: {token_stats['median']:.2f}")
-    print(f"Distribution:")
-    for p, v in token_stats["percentiles"].items():
-        print(f"  {p}th percentile: {v:.2f}")
+    # Calculate coverage using percentiles
+    max_length = config["tokenizer"]["max_length"]
+    percentiles = token_stats["percentiles"]
 
-    if "plot_path" in token_stats:
-        print(f"\nToken length distribution plot saved to: {token_stats['plot_path']}")
+    coverage = 0
+    for percentile in token_stats["percentiles"]:
+        if int(percentiles[percentile]) <= max_length:
+            coverage = percentile
+        else:
+            break
 
-    # print(f"\n\n{dataset[max_index]['question']}")
-    # print(f"\n\n{dataset[max_index]['options']}")
-    # print(f"\n\n{dataset[max_index]['model_response']}")
-    # print(f"\n\n{dataset[max_index]['answer']}")
+    print(f"\n\nCoverage (at least): {coverage}%")
