@@ -17,9 +17,9 @@ def prefetch_dataset(config_path: str, dataset_config_path: str) -> None:
 
     # if a subset is given, pass it; else drop the arg
     if dataset_config.get("subset"):
-        load_dataset(dataset_config["name"], dataset_config["subset"], split=dataset_config["split"])
+        load_dataset(config["dataset"], dataset_config["subset"], split=dataset_config["split"])
     else:
-        load_dataset(dataset_config["name"], split=dataset_config["split"])
+        load_dataset(config["dataset"], split=dataset_config["split"])
 
 
 def prefetch_models(config_path: str) -> None:
