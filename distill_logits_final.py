@@ -19,10 +19,13 @@ import time
 from transformers import BitsAndBytesConfig
 
 bnb_cfg = BitsAndBytesConfig(
-    load_in_4bit=True,  # 4‑bit weights
-    bnb_4bit_quant_type="nf4",  # best accuracy
-    bnb_4bit_compute_dtype=torch.bfloat16,
-    bnb_4bit_use_double_quant=True,
+    # load_in_4bit=True,  # 4‑bit weights
+    # bnb_4bit_quant_type="nf4",  # best accuracy
+    # bnb_4bit_compute_dtype=torch.bfloat16,
+    # bnb_4bit_use_double_quant=True,
+    # after moving teacher model to CPU, needed to avoid OOM (?)
+    load_in_8bit=True,  # 8‑bit weights
+    llm_int8_enable_fp32_cpu_offload=True,  # keep weights on CPU, cast to fp32 when needed
 )
 # ------------------------------------------------------------
 
