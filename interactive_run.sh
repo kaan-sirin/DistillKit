@@ -21,5 +21,5 @@ srun -n 1 \
        export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"   
         export CUDA_DEVICE_MAX_CONNECTIONS=1
 
-       accelerate launch --num_processes $GPUS_PER_NODE distill_logits_final.py
+       accelerate launch --num_processes 1 distill_logits_final.py
      '

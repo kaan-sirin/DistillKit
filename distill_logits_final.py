@@ -74,6 +74,11 @@ class LogitsTrainer(SFTTrainer):
         student_outputs = student_model(**inputs)
         with torch.no_grad():
             teacher_outputs = teacher_model(**inputs)
+            
+        # --- making sure everything is on the student's device -----------------
+        teacher_logits = teacher_outputs.logits.to(device)
+        inputs["attention_mask"] = inputs["attention_mask"].to(device)
+        # ---------------------------------------------------------------------
 
         total_loss, loss_components = self.distillation_loss(
             student_outputs.logits, teacher_outputs.logits, inputs, student_outputs.loss
