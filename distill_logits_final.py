@@ -81,7 +81,7 @@ class LogitsTrainer(SFTTrainer):
         # ---------------------------------------------------------------------
 
         total_loss, loss_components = self.distillation_loss(
-            student_outputs.logits, teacher_outputs.logits, inputs, student_outputs.loss
+            student_outputs.logits, teacher_logits, inputs, student_outputs.loss
         )
 
         # Accumulate losses for logging average over gradient accumulation steps
