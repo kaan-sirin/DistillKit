@@ -72,13 +72,16 @@ class LogitsTrainer(SFTTrainer):
         )
 
         student_outputs = student_model(**inputs)
+
+        # --- running teacher on CPU tensors, then bringing logits back to GPU ---------
         with torch.no_grad():
-            teacher_outputs = teacher_model(**inputs)
-            
-        # --- making sure everything is on the student's device -----------------
-        teacher_logits = teacher_outputs.logits.to(device)
-        inputs["attention_mask"] = inputs["attention_mask"].to(device)
-        # ---------------------------------------------------------------------
+            teacher_inputs = {
+                k: v.to("cpu") if hasattr(v, "to") else v for k, v in inputs.items()
+            }
+            teacher_outputs = teacher_model(**teacher_inputs)
+
+        teacher_logits = teacher_outputs.logits.to(device)  # now on same GPU
+        # ----------------------------------------------------------------------
 
         total_loss, loss_components = self.distillation_loss(
             student_outputs.logits, teacher_logits, inputs, student_outputs.loss
