@@ -18,6 +18,8 @@ srun -n 1 \
        export HF_DATASETS_OFFLINE=1
        export WANDB_MODE=offline
        export TOKENIZERS_PARALLELISM=false
+       export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"   
+        export CUDA_DEVICE_MAX_CONNECTIONS=1
 
        accelerate launch --num_processes $GPUS_PER_NODE distill_logits_final.py
      '

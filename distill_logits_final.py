@@ -228,13 +228,17 @@ def main():
 
     print(f"Process {accelerator.process_index}: Loading teacher model...")
     # --- seems necessary for it to work on the cluster for the 70B model
-    max_memory = {0: "40GiB", 1: "40GiB"}  # per‑GPU budget (adjust to what’s free)
+    max_memory = {
+        0: "38GiB",
+        1: "38GiB",
+        "cpu": "160GiB",
+    }  # anything beyond 38 GiB goes to RAM
 
     teacher_model = AutoModelForCausalLM.from_pretrained(
         config["models"]["teacher"],
         quantization_config=bnb_cfg,
-        device_map="balanced_low_0",  # evenly fills GPU 1, then GPU 0
-        max_memory=max_memory,  # hard upper bounds
+        device_map="balanced",  # fill GPUs evenly, overflow -> “cpu”
+        max_memory=max_memory,
         low_cpu_mem_usage=True,
     )
     teacher_model.eval().requires_grad_(False)
