@@ -237,7 +237,8 @@ def main():
     teacher_model = AutoModelForCausalLM.from_pretrained(
         config["models"]["teacher"],
         quantization_config=bnb_cfg,
-        device_map="balanced",  # fill GPUs evenly, overflow -> “cpu”
+        # device_map="balanced",  # fill GPUs evenly, overflow -> “cpu”
+        device_map={"": "cpu"},  # <‑‑ force *all* layers to CPU
         max_memory=max_memory,
         low_cpu_mem_usage=True,
     )
