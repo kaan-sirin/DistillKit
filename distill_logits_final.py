@@ -15,6 +15,17 @@ from distillation_utils import (
 )
 import time
 
+# --- seems necessary for it to work on the cluster for the 70B model
+from transformers import BitsAndBytesConfig
+
+bnb_cfg = BitsAndBytesConfig(
+    load_in_4bit=True,  # 4‑bit weights
+    bnb_4bit_quant_type="nf4",  # best accuracy
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_use_double_quant=True,
+)
+# ------------------------------------------------------------
+
 
 class LogitsTrainer(SFTTrainer):
     def __init__(
@@ -48,7 +59,7 @@ class LogitsTrainer(SFTTrainer):
             device = model.module.device
 
         inputs = {k: v.to(device) if hasattr(v, "to") else v for k, v in inputs.items()}
-        self.teacher_model = self.teacher_model.to(device)
+        # self.teacher_model = self.teacher_model.to(device) - commented out to avoid memory issues (cluster, 70B model)
 
         student_model = model.module if hasattr(model, "module") else model
         teacher_model = (
@@ -216,9 +227,19 @@ def main():
         model_kwargs["attn_implementation"] = "flash_attention_2"
 
     print(f"Process {accelerator.process_index}: Loading teacher model...")
-    teacher_model = AutoModelForCausalLM.from_pretrained(
-        config["models"]["teacher"], **model_kwargs
+    # --- seems necessary for it to work on the cluster for the 70B model
+    teacher_model = (
+        AutoModelForCausalLM.from_pretrained(
+            config["models"]["teacher"],
+            quantization_config=bnb_cfg,
+            device_map="auto",             
+            low_cpu_mem_usage=True,
+        )
+        .eval()                            # inference only
+        .requires_grad_(False)            
     )
+    # ------------------------------------------------------------
+    
     print(f"Process {accelerator.process_index}: Loading student model...")
     student_model = AutoModelForCausalLM.from_pretrained(
         config["models"]["student"], **model_kwargs
