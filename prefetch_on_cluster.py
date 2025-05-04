@@ -34,6 +34,9 @@ if __name__ == "__main__":
     # ensure network access
     os.environ.pop("HF_HUB_OFFLINE", None)
     os.environ.pop("HF_DATASETS_OFFLINE", None)
+    os.environ["HF_HOME"] = f"$WORK/hf-cache"
+    os.environ["TORCH_HOME"] = f"$WORK/torch-cache"
+    
 
     config_file = "config.yaml"
     dataset_config_file = "datasets.yaml"
