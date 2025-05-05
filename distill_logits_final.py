@@ -91,6 +91,9 @@ class LogitsTrainer(SFTTrainer):
             teacher_logits / self.config["distillation"]["temperature"]
         )
 
+        student_logits_scaled = student_logits_scaled.to(torch.float16)
+        teacher_logits_scaled = teacher_logits_scaled.to(torch.float16)
+
         kld = None
         if self.use_reverse_kld:
             kld = reverse_kld(
@@ -228,9 +231,9 @@ def main():
         0: "38GiB",
         1: "38GiB",
         2: "38GiB",
-        3: "38GiB",
+        3: "8GiB",  # only let embeddings spill, nothing heavier
         "cpu": "160GiB",
-    }  # anything beyond 38 GiB goes to RAM
+    }
 
     teacher_model = AutoModelForCausalLM.from_pretrained(
         config["models"]["teacher"],
@@ -243,13 +246,17 @@ def main():
 
     print(f"Process {accelerator.process_index}: Loading student model...")
     student_model = AutoModelForCausalLM.from_pretrained(
-        config["models"]["student"], **model_kwargs
-    )
+        config["models"]["student"],
+        **model_kwargs,
+    ).to("cuda:3") # trying to offload the model to the GPU with the most free memory
     student_model.gradient_checkpointing_enable()
 
     training_args_dict = config["training"].copy()
     training_args_dict["output_dir"] = output_dir  # Ensure output_dir is set
     training_args_dict["report_to"] = ["wandb"]
+    training_args_dict["optim"] = (
+        "paged_adamw_8bit"  # attempt to get rid of memory issues
+    )
     training_arguments = TrainingArguments(**training_args_dict)
 
     if accelerator.is_main_process:
