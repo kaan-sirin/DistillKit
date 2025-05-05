@@ -231,7 +231,6 @@ def main():
         0: "38GiB",
         1: "38GiB",
         2: "38GiB",
-        3: "8GiB",  # only let embeddings spill, nothing heavier
         "cpu": "160GiB",
     }
 
