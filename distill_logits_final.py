@@ -19,13 +19,10 @@ import time
 from transformers import BitsAndBytesConfig
 
 bnb_cfg = BitsAndBytesConfig(
-    # load_in_4bit=True,  # 4‑bit weights
-    # bnb_4bit_quant_type="nf4",  # best accuracy
-    # bnb_4bit_compute_dtype=torch.bfloat16,
-    # bnb_4bit_use_double_quant=True,
-    # after moving teacher model to CPU, needed to avoid OOM (?)
-    load_in_8bit=True,  # 8‑bit weights
-    llm_int8_enable_fp32_cpu_offload=True,  # keep weights on CPU, cast to fp32 when needed
+    load_in_4bit=True,  # 4‑bit weights
+    bnb_4bit_quant_type="nf4",  # best accuracy
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_use_double_quant=True,
 )
 # ------------------------------------------------------------
 
@@ -72,19 +69,11 @@ class LogitsTrainer(SFTTrainer):
         )
 
         student_outputs = student_model(**inputs)
-
-        # --- running teacher on CPU tensors, then bringing logits back to GPU ---------
         with torch.no_grad():
-            teacher_inputs = {
-                k: v.to("cpu") if hasattr(v, "to") else v for k, v in inputs.items()
-            }
-            teacher_outputs = teacher_model(**teacher_inputs)
-
-        teacher_logits = teacher_outputs.logits.to(device)  # now on same GPU
-        # ----------------------------------------------------------------------
+            teacher_outputs = teacher_model(**inputs)
 
         total_loss, loss_components = self.distillation_loss(
-            student_outputs.logits, teacher_logits, inputs, student_outputs.loss
+            student_outputs.logits, teacher_outputs.logits, inputs, student_outputs.loss
         )
 
         # Accumulate losses for logging average over gradient accumulation steps
@@ -248,8 +237,7 @@ def main():
     teacher_model = AutoModelForCausalLM.from_pretrained(
         config["models"]["teacher"],
         quantization_config=bnb_cfg,
-        # device_map="balanced",  # fill GPUs evenly, overflow -> “cpu”
-        device_map={"": "cpu"},  # <‑‑ force *all* layers to CPU
+        device_map="balanced",  # fill GPUs evenly, overflow -> “cpu”
         max_memory=max_memory,
         low_cpu_mem_usage=True,
     )
