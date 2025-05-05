@@ -52,16 +52,12 @@ class LogitsTrainer(SFTTrainer):
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
     ):
-        if hasattr(model, "device"):
-            device = model.device
-        elif hasattr(model, "module"):
-            # For DataParallel models, use the device of the module inside
-            device = model.module.device
-
-        inputs = {k: v.to(device) if hasattr(v, "to") else v for k, v in inputs.items()}
-        # self.teacher_model = self.teacher_model.to(device) - commented out to avoid memory issues (cluster, 70B model)
-
         student_model = model.module if hasattr(model, "module") else model
+        root_device = next(student_model.parameters()).device
+        inputs = {
+            k: v.to(root_device) if torch.is_tensor(v) else v for k, v in inputs.items()
+        }
+
         teacher_model = (
             self.teacher_model.module
             if hasattr(self.teacher_model, "module")
@@ -164,7 +160,7 @@ def main():
 
     # Set up environment
     os.environ["WANDB_PROJECT"] = config["project_name"]
-    accelerator = Accelerator()
+    accelerator = Accelerator(mixed_precision="bf16")
 
     group_name = f"{config['dataset'].split('/')[-1].replace('-', '_')}_{config['distillation']['kl_divergence']}_{dataset_config['num_samples']}_samples_{config['training']['num_train_epochs']}_epochs_{time.strftime('%m_%d_%H_%M')}"
     run_name = f"process_{accelerator.process_index}_{time.strftime('%m_%d_%H_%M')}"
@@ -231,15 +227,16 @@ def main():
     max_memory = {
         0: "38GiB",
         1: "38GiB",
+        2: "38GiB",
+        3: "38GiB",
         "cpu": "160GiB",
     }  # anything beyond 38 GiB goes to RAM
 
     teacher_model = AutoModelForCausalLM.from_pretrained(
         config["models"]["teacher"],
         quantization_config=bnb_cfg,
-        device_map="balanced",  # fill GPUs evenly, overflow -> “cpu”
+        device_map="auto",
         max_memory=max_memory,
-        low_cpu_mem_usage=True,
     )
     teacher_model.eval().requires_grad_(False)
     # ------------------------------------------------------------
@@ -248,29 +245,31 @@ def main():
     student_model = AutoModelForCausalLM.from_pretrained(
         config["models"]["student"], **model_kwargs
     )
+    student_model.gradient_checkpointing_enable()
 
     training_args_dict = config["training"].copy()
     training_args_dict["output_dir"] = output_dir  # Ensure output_dir is set
     training_args_dict["report_to"] = ["wandb"]
     training_arguments = TrainingArguments(**training_args_dict)
 
-    wandb.init(
-        project=config["project_name"],
-        name=run_name,
-        group=group_name,
-        config={
-            "teacher_model": config["models"]["teacher"],
-            "student_model": config["models"]["student"],
-            "distillation_method": config["distillation"]["method"],
-            "alpha": config["distillation"]["alpha"],
-            "temperature": config["distillation"]["temperature"],
-            "num_samples": dataset_config["num_samples"],
-            "num_epochs": config["training"]["num_train_epochs"],
-            "group_name": group_name,
-            "training_args": training_args_dict,
-        },
-        reinit=False,
-    )
+    if accelerator.is_main_process:
+        wandb.init(
+            project=config["project_name"],
+            name=run_name,
+            group=group_name,
+            config={
+                "teacher_model": config["models"]["teacher"],
+                "student_model": config["models"]["student"],
+                "distillation_method": config["distillation"]["method"],
+                "alpha": config["distillation"]["alpha"],
+                "temperature": config["distillation"]["temperature"],
+                "num_samples": dataset_config["num_samples"],
+                "num_epochs": config["training"]["num_train_epochs"],
+                "group_name": group_name,
+                "training_args": training_args_dict,
+            },
+            reinit=False,
+        )
 
     # Create the custom SFT Trainer
     trainer = LogitsTrainer(
