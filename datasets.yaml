@@ -1,6 +1,6 @@
 sahil2801/CodeAlpaca-20k:
   split: train
-  num_samples: 5000
+  num_samples: 500
   seed: 42
   format_function: code_alpaca_format
   test_size: 0.1
