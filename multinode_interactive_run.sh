@@ -16,7 +16,7 @@ srun -N 2 -n 2 \
     export HF_HOME=$WORK/hf-cache
     export TOKENIZERS_PARALLELISM=false
     
-    
+
     # ---- distributed init ----
     MASTER_NODE=$(scontrol show hostnames "$SLURM_NODELIST" | head -n 1)
     export MASTER_ADDR=$MASTER_NODE
@@ -29,6 +29,5 @@ srun -N 2 -n 2 \
         --num_processes 1 \
         --num_machines 2 \
         --machine_rank $RANK \
-        --cpu_threads_per_process 8 \
         distill_logits_final.py
 '
