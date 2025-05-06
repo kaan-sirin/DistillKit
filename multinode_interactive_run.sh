@@ -16,11 +16,7 @@ srun -N 2 -n 2 \
     export HF_HOME=$WORK/hf-cache
     export TOKENIZERS_PARALLELISM=false
     
-    # to stop tokenisers / dataloader workers from spawning 32 threads on each node 
-    # and fighting over CPU cores
-    export OMP_NUM_THREADS=8
-    export MKL_NUM_THREADS=8
-
+    
     # ---- distributed init ----
     MASTER_NODE=$(scontrol show hostnames "$SLURM_NODELIST" | head -n 1)
     export MASTER_ADDR=$MASTER_NODE
@@ -32,6 +28,7 @@ srun -N 2 -n 2 \
     accelerate launch \
         --num_processes 1 \
         --num_machines 2 \
-        --machine_rank "$RANK" \
+        --machine_rank $RANK \
+        --cpu_threads_per_process 8 \
         distill_logits_final.py
 '
