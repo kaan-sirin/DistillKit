@@ -138,7 +138,7 @@ jsonlines==4.0.0
     # via lm-eval
 kiwisolver==1.4.8
     # via matplotlib
-lm-eval @ git+https://github.com/EleutherAI/lm-evaluation-harness.git@fc5019ead53c45119c522c62e8eea2daa837c56e
+lm-eval @ git+https://github.com/EleutherAI/lm-evaluation-harness.git@a96085f1515fe87af44350b01094bee248515356
     # via distillkit (pyproject.toml)
 lxml==5.4.0
     # via sacrebleu
