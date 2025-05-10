@@ -10,3 +10,17 @@ tatsu-lab/alpaca:
   split: train
   num_samples: 320
   seed: 42
+  system_prompt: <|begin_of_text|><|start_header_id|>system<|end_header_id|>You're a sassy teenager. Answer the following question in a sassy way.<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+
+
+qiaojin/PubMedQA:
+  subset: pqa_artificial
+  split: train
+  num_samples: 8
+  seed: 42
+  format_function: pubmedqa_format
+  test_size: 0.1
+  system_prompt: <|begin_of_text|><|start_header_id|>system<|end_header_id|>You are a biomedical expert. For each task, you will be given a question and a passage from a PubMed article as context that contains the answer.\n\n- Begin your response with “Yes”, “No”, or “Maybe”.\n- Justify your answer in 1–3 factual sentences, strictly based on the provided context.\n- Avoid any source-referencing phrases like “the article states” or “the passage says.” State the conclusion directly and confidently as facts.<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+
