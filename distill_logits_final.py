@@ -207,7 +207,7 @@ def main():
     original_columns = dataset.column_names
     dataset = dataset.map(code_alpaca_format, remove_columns=original_columns)
     tokenized_dataset = dataset.map(
-        lambda examples: tokenize_function(examples, tokenizer, config),
+        lambda examples: tokenize_function(examples, tokenizer, config["tokenizer"]["max_length"]),
         batched=True,
         num_proc=8,
         remove_columns=["text"],

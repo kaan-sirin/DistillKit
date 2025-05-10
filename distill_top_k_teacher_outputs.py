@@ -563,7 +563,7 @@ if __name__ == "__main__":
 
     # Tokenize the "text" column
     tokenized_dataset = dataset.map(
-        lambda examples: tokenize_function(examples, tokenizer, config),
+        lambda examples: tokenize_function(examples, tokenizer, config["tokenizer"]["max_length"]),
         batched=True,
         num_proc=8,
         load_from_cache_file=False,
