@@ -193,8 +193,6 @@ class SparseLogitsCollator(DefaultDataCollator):
 
 # --------------------------------------------------------------------------- #
 def main():
-    print(torch.cuda.is_available())
-    print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU found")
     load_dotenv()
     cfg = load_config("random_sampling_config.yaml")
     dataset_name = cfg["dataset"]
@@ -295,10 +293,15 @@ def main():
             "flash_attention_2" if distillation_config["use_flash_attention"] else None
         ),
     )
+    
+    # reduce activation memory during backward pass
+    model.gradient_checkpointing_enable()
 
     training_args_dict = cfg["training"].copy()
     training_args_dict["output_dir"] = output_dir
     training_args_dict["report_to"] = ["wandb"]
+    # 8‑bit optimizer to keep states off the GPU
+    training_args_dict["optim"] = "paged_adamw_8bit"
     training_args = TrainingArguments(**training_args_dict, remove_unused_columns=False)
 
     if accel.is_main_process:
