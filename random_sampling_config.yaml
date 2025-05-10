@@ -2,8 +2,8 @@ project_name: logit-dist-rand-sampled-teacher-generated-logits
 dataset: qiaojin/PubMedQA
 max_new_tokens: 512
 model: meta-llama/Llama-3.3-70B-Instruct
-draws: 10000
-tau: 1.0
+draws: 100000
+tau: 1.2
 batch_size: 8
 logits_path: generated_tokens/pubmedqa/teacher_random_logits_8_R10000.pt
 
