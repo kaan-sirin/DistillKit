@@ -144,8 +144,9 @@ def generate_and_save_random_sampled_logits(
 
 # --------------------------------------------------------------------------- #
 if __name__ == "__main__":
-    config = load_config("random_sampling_config.yaml")
-    dataset_name = config["dataset"]
+    general_config = load_config("random_sampling_config.yaml")
+    config = general_config["output_generation"]
+    dataset_name = general_config["dataset"]
     dataset_config = load_config("datasets.yaml")[dataset_name]
 
     generate_and_save_random_sampled_logits(
