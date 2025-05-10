@@ -48,7 +48,9 @@ class SparseKDLossTrainer(SFTTrainer):
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
     ):
-        device = model.module.device
+        model = model.module if hasattr(model, "module") else model
+        device = next(model.parameters()).device
+
         sparse_logits = inputs.pop("sparse_logits")  # list[list[list]]
 
         # ---- find start indices, filter invalid examples ---------------------
@@ -90,6 +92,7 @@ class SparseKDLossTrainer(SFTTrainer):
         # ---- filtering is done, only valid examples are kept -----------------
 
         # ---- get the student logits and compute the loss ---------------------
+        inputs = {k: v.to(device) if torch.is_tensor(v) else v for k, v in inputs.items()}
         student_out = model(**inputs, use_cache=False)
         logits = student_out.logits  # Shape: (valid_batch_size, L, V)
 
