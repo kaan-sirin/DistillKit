@@ -160,6 +160,6 @@ if __name__ == "__main__":
         batch_size=config["batch_size"],
         draws=config["draws"],
         tau=config["tau"],
-        output_dir=Path(config["logits_path"]).parent,
+        output_dir=Path(config["logits_dir"]),
         debug=True,
     )
