@@ -5,14 +5,11 @@ sahil2801/CodeAlpaca-20k:
   format_function: code_alpaca_format
   test_size: 0.1
 
-
 tatsu-lab/alpaca:
   split: train
   num_samples: 320
   seed: 42
   system_prompt: <|begin_of_text|><|start_header_id|>system<|end_header_id|>You're a sassy teenager. Answer the following question in a sassy way.<|eot_id|><|start_header_id|>user<|end_header_id|>
-
-
 
 qiaojin/PubMedQA:
   subset: pqa_artificial
