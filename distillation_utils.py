@@ -51,10 +51,11 @@ def decode_sparse_sequence(sequence, tokenizer):
     decoded_output = ""
     for token in sequence:
         token.sort(key=lambda pair: pair[1], reverse=True)
-        most_probable_id = int(token[0][0])        
+        most_probable_id = int(token[0][0])
         decoded_output += tokenizer.decode(most_probable_id)
-        
+
     return decoded_output
+
 
 def alpaca_format(example, tokenizer):
     try:
@@ -67,7 +68,8 @@ def alpaca_format(example, tokenizer):
         print(f"Sample keys: {list(example.keys())}")
         print(f"Error formatting example: {e}")
         raise
-    
+
+
 def dailydialog_format(example, tokenizer):
     try:
         decoded_output = decode_sparse_sequence(example["sparse_logits"], tokenizer)
@@ -77,6 +79,18 @@ def dailydialog_format(example, tokenizer):
         print(f"Sample keys: {list(example.keys())}")
         print(f"Error formatting example: {e}")
         raise
+
+
+def pubmedqa_format(example, tokenizer):
+    try:
+        decoded_output = decode_sparse_sequence(example["sparse_logits"], tokenizer)
+        text = f"{USER_PROMPT_START}\n\n{example['question']}{USER_PROMPT_END}{decoded_output}"
+        return {"text": text}
+    except Exception as e:
+        print(f"Sample keys: {list(example.keys())}")
+        print(f"Error formatting example: {e}")
+        raise
+
 
 def code_alpaca_format(example):
     try:
@@ -109,13 +123,14 @@ def load_config(config_path="config.yaml"):
         raise
 
 
-def tokenize_function(examples, tokenizer, config):
+def tokenize_function(examples, tokenizer, max_length):
     return tokenizer(
         examples["text"],
         truncation=True,
-        max_length=config["tokenizer"]["max_length"],
+        max_length=max_length,
         padding="max_length",
     )
+
 
 def reverse_kld(student_logits, teacher_logits, reduction="per_token"):
     log_ps = F.log_softmax(student_logits, dim=-1)
@@ -124,7 +139,9 @@ def reverse_kld(student_logits, teacher_logits, reduction="per_token"):
     with torch.no_grad():
         log_pt = F.log_softmax(teacher_logits, dim=-1)  # log p_t
 
-    per_token_kld = (ps * (log_ps - log_pt)).sum(dim=-1) # shape will be (batch_size, seq_len)
+    per_token_kld = (ps * (log_ps - log_pt)).sum(
+        dim=-1
+    )  # shape will be (batch_size, seq_len)
 
     if reduction == "none":
         return per_token_kld
@@ -139,10 +156,9 @@ def reverse_kld(student_logits, teacher_logits, reduction="per_token"):
         batch_size = student_logits.shape[0]
         return per_token_kld.sum() / batch_size
     else:
-        raise ValueError(f"Invalid reduction type: {reduction}. Choose from 'none', 'mean', 'sum', 'batchmean'.")
-    
-  
-
+        raise ValueError(
+            f"Invalid reduction type: {reduction}. Choose from 'none', 'mean', 'sum', 'batchmean'."
+        )
 
 
 def get_max_token_length(
@@ -251,11 +267,11 @@ def format_dialog(utterances):
     dialog = ""
     for i, turn in enumerate(utterances):
         # Remove space before punctuation
-        turn = re.sub(r'\s+([^\w\s])', r'\1', turn)
+        turn = re.sub(r"\s+([^\w\s])", r"\1", turn)
         # Remove space after punctuation
-        turn = re.sub(r'([^\w\s])\s+', r'\1', turn)
+        turn = re.sub(r"([^\w\s])\s+", r"\1", turn)
         # Add space after punctuation (but not apostrophe) if followed by a letter/digit
-        turn = re.sub(r"([^\w\s'])(?=[a-zA-Z0-9])", r'\1 ', turn)
+        turn = re.sub(r"([^\w\s'])(?=[a-zA-Z0-9])", r"\1 ", turn)
         if i % 2 == 0:
             dialog += "Person A: " + turn + "\n"
         else:
@@ -264,7 +280,6 @@ def format_dialog(utterances):
 
 
 if __name__ == "__main__":
-
     load_dotenv()
     HF_TOKEN = os.getenv("HF_TOKEN")
     config = load_config()
