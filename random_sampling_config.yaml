@@ -19,9 +19,9 @@ training:
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
   gradient_accumulation_steps: 8
-  save_steps: 320
+  save_steps: 1000
   logging_steps: 1
-  eval_steps: 1
+  eval_steps: 28
   eval_strategy: steps
   save_strategy: steps
   learning_rate: 2e-5
