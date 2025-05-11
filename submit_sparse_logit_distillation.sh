@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:4 # GPUs PER NODE
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --time=8:00:00
+#SBATCH --time=6:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=kaansirin@yahoo.com
 
