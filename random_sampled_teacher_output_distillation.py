@@ -10,6 +10,7 @@ from transformers import (
     AutoModelForCausalLM,
     TrainingArguments,
     DefaultDataCollator,
+    EarlyStoppingCallback,
 )
 from trl import SFTTrainer
 from distillation_utils import (
@@ -336,6 +337,17 @@ def main():
     training_args_dict["optim"] = "paged_adamw_8bit"
     training_args = TrainingArguments(**training_args_dict, remove_unused_columns=False)
 
+    # Configure callbacks
+    callbacks = []
+    
+    # Add early stopping if configured
+    if training_args.load_best_model_at_end:
+        callbacks.append(
+            EarlyStoppingCallback(
+                early_stopping_patience=training_args.early_stopping_patience,
+            )
+        )
+
     if accel.is_main_process:
         wandb.init(
             project=cfg["project_name"],
@@ -350,6 +362,12 @@ def main():
                 "num_epochs": cfg["training"]["num_train_epochs"],
                 "group_name": group_name,
                 "training_args": training_args_dict,
+                "early_stopping": {
+                    "enabled": training_args.load_best_model_at_end,
+                    "patience": getattr(training_args, "early_stopping_patience", None),
+                    "metric": getattr(training_args, "metric_for_best_model", None),
+                    "greater_is_better": getattr(training_args, "greater_is_better", None),
+                }
             },
             reinit=False,
         )
@@ -362,6 +380,7 @@ def main():
         data_collator=SparseLogitsCollator(),
         args=training_args,
         distillation_config=distillation_config,
+        callbacks=callbacks,
     )
 
     trainer = accel.prepare(trainer)

@@ -23,8 +23,8 @@ training:
   save_steps: 1000
   logging_steps: 1
   eval_steps: 28
-  eval_strategy: steps
-  save_strategy: steps
+  eval_strategy: epoch
+  save_strategy: epoch
   learning_rate: 2e-5
   weight_decay: 0.05
   warmup_ratio: 0.1
@@ -32,4 +32,8 @@ training:
   resume_from_checkpoint: null # Set to a path or True to resume from the latest checkpoint
   fp16: false
   bf16: true
+  load_best_model_at_end: true
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+  early_stopping_patience: 1
 
