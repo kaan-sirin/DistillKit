@@ -37,7 +37,7 @@ class SparseKDLossTrainer(SFTTrainer):
         super().__init__(*args, **kwargs)
         self.processing_class = processing_class
         self.T = distillation_config["temperature"]
-        
+
         self._accumulated_loss = 0.0
         self._accumulation_step_count = 0
 
@@ -95,7 +95,9 @@ class SparseKDLossTrainer(SFTTrainer):
         # ---- filtering is done, only valid examples are kept -----------------
 
         # ---- get the student logits and compute the loss ---------------------
-        inputs = {k: v.to(device) if torch.is_tensor(v) else v for k, v in inputs.items()}
+        inputs = {
+            k: v.to(device) if torch.is_tensor(v) else v for k, v in inputs.items()
+        }
         student_out = model(**inputs, use_cache=False)
         logits = student_out.logits  # Shape: (valid_batch_size, L, V)
 
@@ -181,13 +183,13 @@ class SparseKDLossTrainer(SFTTrainer):
             # If no tokens were processed (e.g., all items skipped or had issues)
             # Return the zero tensor initialized earlier.
             print("Warning: No tokens processed in KD loss calculation for this batch.")
-        
+
         if model.training:
             self._accumulated_loss += kd_loss.detach().item()
             self._accumulation_step_count += 1
 
         return (kd_loss, student_out) if return_outputs else kd_loss
-    
+
     def log(self, logs, start_time=None):
         # For training steps with accumulated loss
         if self._accumulation_step_count > 0 and "loss" in logs:
@@ -195,11 +197,13 @@ class SparseKDLossTrainer(SFTTrainer):
             # Reset accumulators
             self._accumulated_loss = 0.0
             self._accumulation_step_count = 0
-        
+
         # For evaluation, make sure eval_loss is captured
-        if "eval_loss" not in logs and "loss" in logs and not model.training:
+        is_eval = any(k.startswith("eval_") for k in logs.keys())
+
+        if is_eval and "eval_loss" not in logs and "loss" in logs:
             logs["eval_loss"] = logs["loss"]
-            
+
         super().log(logs)
 
 
@@ -316,7 +320,7 @@ def main():
             "flash_attention_2" if distillation_config["use_flash_attention"] else None
         ),
     )
-    
+
     # reduce activation memory during backward pass
     model.gradient_checkpointing_enable()
 
