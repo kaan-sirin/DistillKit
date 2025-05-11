@@ -119,7 +119,7 @@ def generate_and_save_random_sampled_logits(
                     [(int(i), float(p)) for i, p in zip(ids, probs)]
                 )  # ids = unique token ids, probs = unbiased teacher probs (sum = 1)
 
-            if debug and b0 == 0:
+            if debug and b0 == start_idx:
                 print(f"\n############# DEBUGGING SEQ {seq_i} #############")
                 for token_prob_pairs in step_pairs:
                     token_prob_pairs.sort(key=lambda x: x[1], reverse=True)
