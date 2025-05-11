@@ -36,6 +36,7 @@ def generate_and_save_random_sampled_logits(
     dataset_split="train",
     system_prompt=None,
     num_samples=None,
+    start_idx=0,
     max_new_tokens=256,
     batch_size=1,
     draws=50,  # R – controls expected ~K ≃ 12 unique tokens
@@ -55,7 +56,9 @@ def generate_and_save_random_sampled_logits(
     ds = load_dataset(dataset_name, dataset_subset, split=dataset_split)
     if dataset_name == "tatsu-lab/alpaca":
         ds = ds.filter(lambda x: x["input"] == "")  # alpaca quirk
-    num_samples = min(len(ds), num_samples or len(ds))
+    
+    end_idx = min(len(ds), start_idx + (num_samples or len(ds)))
+    actual_num_samples = end_idx - start_idx
 
     model, tok = load_model(model_name)
     tok.pad_token = tok.pad_token or tok.eos_token
@@ -71,9 +74,10 @@ def generate_and_save_random_sampled_logits(
 
     # ------------------------------------------------------------------ loop
     for b0 in tqdm(
-        range(0, num_samples, batch_size), desc=f"Random‑sampling {num_samples} ex"
-    ):  # b0 is the batch start index
-        b1 = min(b0 + batch_size, num_samples)  # b1 is the batch end index
+        range(start_idx, end_idx, batch_size), 
+        desc=f"Random‑sampling {actual_num_samples} ex from {start_idx} to {end_idx-1}"
+    ):
+        b1 = min(b0 + batch_size, end_idx)  # b1 is the batch end index
         prompts = []
         end_marker = "<|eot_id|>"
         for ex in ds.select(range(b0, b1)):
@@ -136,9 +140,9 @@ def generate_and_save_random_sampled_logits(
             all_steps.append(step_pairs)
 
     # ------------------------------------------------------------------ save
-    save_path = out_dir / f"teacher_random_logits_{num_samples}_R{draws}_tau{tau}.pt"
+    save_path = out_dir / f"teacher_random_logits_{start_idx}-{end_idx-1}_R{draws}_tau{tau}.pt"
     torch.save(all_steps, save_path)
-    logger.info(f"[RSKD] wrote {len(all_steps)} sequences → {save_path}")
+    logger.info(f"[RSKD] wrote {len(all_steps)} sequences ({start_idx}-{end_idx-1}) → {save_path}")
     return all_steps
 
 
@@ -157,6 +161,7 @@ if __name__ == "__main__":
         dataset_split=dataset_config["split"],
         system_prompt=dataset_config.get("system_prompt", None),
         num_samples=dataset_config["num_samples"],
+        start_idx=config.get("start_idx", 0),
         max_new_tokens=config["max_new_tokens"],
         batch_size=config["batch_size"],
         draws=config["draws"],
