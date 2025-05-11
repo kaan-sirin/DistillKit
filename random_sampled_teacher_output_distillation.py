@@ -205,6 +205,11 @@ class SparseKDLossTrainer(SFTTrainer):
             logs["eval_loss"] = logs["loss"]
 
         super().log(logs)
+    
+    def prediction_step(self, model, inputs, prediction_loss_only, **_):
+        with torch.no_grad(), self.compute_loss_context_manager():
+            loss, _ = self.compute_loss(model, inputs, return_outputs=True)
+        return (loss.detach(), None, None)  # we only care about the loss
 
 
 # --------------------------------------------------------------------------- #
