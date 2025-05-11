@@ -2,11 +2,11 @@ project_name: logit-distillation-pubmedqa-random-sampled-teacher-output
 dataset: qiaojin/PubMedQA
 output_generation:
   max_new_tokens: 512
-  model: meta-llama/Llama-3.1-8B-Instruct # TODO: change back to 70B
+  model: meta-llama/Llama-3.3-70B-Instruct 
   draws: 1_000_000
   tau: 0.8
   batch_size: 8
-  start_idx: 16 # TODO: change back to 0
+  start_idx: 0
   logits_dir: generated_tokens/pubmedqa/
 distillation:
   student: meta-llama/Llama-3.1-8B-Instruct
@@ -20,9 +20,7 @@ training:
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
   gradient_accumulation_steps: 8
-  save_steps: 1000
   logging_steps: 1
-  eval_steps: 28
   eval_strategy: epoch
   save_strategy: epoch
   learning_rate: 2e-5
