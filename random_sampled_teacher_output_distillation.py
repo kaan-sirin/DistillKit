@@ -335,6 +335,7 @@ def main():
     training_args_dict["report_to"] = ["wandb"]
     # 8‑bit optimizer to keep states off the GPU
     training_args_dict["optim"] = "paged_adamw_8bit"
+    early_stopping_patience = training_args_dict.pop("early_stopping_patience", 1)
     training_args = TrainingArguments(**training_args_dict, remove_unused_columns=False)
 
     # Configure callbacks
@@ -344,7 +345,7 @@ def main():
     if training_args.load_best_model_at_end:
         callbacks.append(
             EarlyStoppingCallback(
-                early_stopping_patience=training_args.early_stopping_patience,
+                early_stopping_patience=early_stopping_patience
             )
         )
 
@@ -364,9 +365,9 @@ def main():
                 "training_args": training_args_dict,
                 "early_stopping": {
                     "enabled": training_args.load_best_model_at_end,
-                    "patience": getattr(training_args, "early_stopping_patience", None),
-                    "metric": getattr(training_args, "metric_for_best_model", None),
-                    "greater_is_better": getattr(training_args, "greater_is_better", None),
+                    "patience": early_stopping_patience,
+                    "metric": training_args.metric_for_best_model,
+                    "greater_is_better": training_args.greater_is_better,
                 }
             },
             reinit=False,
