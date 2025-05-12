@@ -22,4 +22,4 @@ export WANDB_MODE=offline
 export TOKENIZERS_PARALLELISM=false
 
 
-python random_sample_logits.py
+python random_sample_logits.py --start_idx 0 --num_samples 2000
