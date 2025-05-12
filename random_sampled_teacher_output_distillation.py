@@ -157,11 +157,15 @@ class SparseKDLossTrainer(SFTTrainer):
 
                 # scale by temperature
                 s_scaled = s_log / self.T
+                
+                alpha = 1 / self.T          
+                tmp   = t_probs ** alpha
+                t_probs_scaled = tmp / tmp.sum() 
 
                 # forward KL on this K‑vector
                 kl = F.kl_div(
                     F.log_softmax(s_scaled, dim=-1),
-                    t_probs,
+                    t_probs_scaled,
                     reduction="sum",
                     log_target=False,
                 )
@@ -259,10 +263,14 @@ def main():
         ds = ds.filter(lambda x: x["input"] == "")  # keep alpaca‑style 0‑shot
 
     output_generation_config = cfg["output_generation"]
-    sparse = torch.load(
-        Path(output_generation_config["logits_dir"])
-        / f"teacher_random_logits_{dataset_config['num_samples']}_R{output_generation_config['draws']}_tau{output_generation_config['tau']}.pt"
-    )
+    if distillation_config["logits_path"] is not None:
+        print(f"Loading sparse logits from {distillation_config['logits_path']}")
+        sparse = torch.load(distillation_config["logits_path"])
+    else:
+        sparse = torch.load(
+            Path(output_generation_config["logits_dir"])
+            / f"teacher_random_logits_{dataset_config['num_samples']}_R{output_generation_config['draws']}_tau{output_generation_config['tau']}.pt"
+        )
     if "num_samples" in dataset_config:
         n = dataset_config["num_samples"]
         ds, sparse = ds.select(range(n)), sparse[:n]
