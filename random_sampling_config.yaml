@@ -10,6 +10,7 @@ output_generation:
   logits_dir: generated_tokens/pubmedqa/
 distillation:
   student: meta-llama/Llama-3.1-8B-Instruct
+  logits_path: /leonardo_work/EUHPC_D17_084/DistillKit/generated_tokens/pubmedqa/combined_sparse_logits_10000.pt # Optional
   max_length: 1024
   use_flash_attention: false
   temperature: 2.0
