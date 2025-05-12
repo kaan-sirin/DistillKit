@@ -5,6 +5,7 @@ from torch import amp
 from datasets import load_dataset
 from batch_comparison import setup, load_model
 from distillation_utils import load_config, format_dialog
+import argparse
 
 # --------------------------------------------------------------------------- #
 def random_sample_distribution(logits, draws=50, tau=1.0):
@@ -148,10 +149,20 @@ def generate_and_save_random_sampled_logits(
 
 # --------------------------------------------------------------------------- #
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Generate random sampled logits from teacher model")
+    parser.add_argument("--start_idx", type=int, help="Starting index for dataset processing, overrides config")
+    parser.add_argument("--num_samples", type=int, help="Number of samples to process, overrides config")
+    args = parser.parse_args()
+    
     general_config = load_config("random_sampling_config.yaml")
     config = general_config["output_generation"]
     dataset_name = general_config["dataset"]
     dataset_config = load_config("datasets.yaml")[dataset_name]
+    
+    if args.start_idx is not None:
+        config["start_idx"] = args.start_idx
+    if args.num_samples is not None:
+        dataset_config["num_samples"] = args.num_samples
 
     generate_and_save_random_sampled_logits(
         model_name=config["model"],
