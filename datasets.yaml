@@ -14,7 +14,7 @@ tatsu-lab/alpaca:
 qiaojin/PubMedQA:
   subset: pqa_artificial
   split: train
-  num_samples: 2000
+  num_samples: 10000
   seed: 42
   format_function: pubmedqa_format
   test_size: 0.1

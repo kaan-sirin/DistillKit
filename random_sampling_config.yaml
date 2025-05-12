@@ -10,9 +10,9 @@ output_generation:
   logits_dir: generated_tokens/pubmedqa/
 distillation:
   student: meta-llama/Llama-3.1-8B-Instruct
-  logits_path: /leonardo_work/EUHPC_D17_084/DistillKit/generated_tokens/pubmedqa/combined_sparse_logits_10000.pt # Optional
+  logits_path: /leonardo_work/EUHPC_D17_084/DistillKit/generated_tokens/pubmedqa/combined_sparse_logits_10000.pt # optional
   max_length: 1024
-  use_flash_attention: false
+  use_flash_attention: false # currently reverse isn't supported 
   temperature: 2.0
   kl_divergence: forward
 training:
