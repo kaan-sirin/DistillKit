@@ -131,8 +131,12 @@ def evaluate_model(
         responses = generate_responses(model, tokenizer, prompts, max_new_tokens)
 
         # Store results
-        for i, _ in enumerate(current_batch):
-            result = responses[i]
+        for i, example in enumerate(current_batch):
+            result = {
+                "prompt": example["prompt"],
+                "reference_answer": example["reference_answer"],
+                "model_response": responses[i],
+            }
             all_results.append(result)
 
     # Save results
@@ -145,9 +149,9 @@ def evaluate_model(
 
         for i, result in enumerate(all_results):
             f.write(f"## Example {i+1}\n\n")
-            f.write(f"### Prompt\n\n{formatted_examples[i]['prompt']}\n\n")
-            f.write(f"### Reference Answer\n\n{formatted_examples[i]['reference_answer']}\n\n")
-            f.write(f"### Model Response\n\n{result}\n\n")
+            f.write(f"### Prompt\n\n{result['prompt']}\n\n")
+            f.write(f"### Reference Answer\n\n{result['reference_answer']}\n\n")
+            f.write(f"### Model Response\n\n{result['model_response']}\n\n")
             f.write("---\n\n")
 
     if logger:
