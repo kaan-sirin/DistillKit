@@ -39,7 +39,7 @@ def generate_responses(
     for i, output in enumerate(outputs):
         prompt_tokens = len(batch_inputs["input_ids"][i])
         response = tokenizer.decode(
-            output[prompt_tokens:], skip_special_tokens=True
+            output[prompt_tokens:], skip_special_tokens=skip_special_tokens
         )
         responses.append(response)
 
@@ -128,7 +128,7 @@ def evaluate_model(
             f"{start_prompt}{example['prompt']}{end_prompt}"
             for example in current_batch
         ]
-        responses = generate_responses(model, tokenizer, prompts, max_new_tokens)
+        responses = generate_responses(model, tokenizer, prompts, max_new_tokens, skip_special_tokens=True)
 
         # Store results
         for i, example in enumerate(current_batch):
@@ -193,15 +193,6 @@ def ask_model_question(
 
 
 if __name__ == "__main__":
-    
-#   max_new_tokens: 512
-#   model: meta-llama/Llama-3.3-70B-Instruct 
-#   draws: 1_000_000
-#   tau: 0.8
-#   batch_size: 8
-#   start_idx: 0
-#   logits_dir: generated_tokens/pubmedqa/
-  
     general_config = load_config("random_sampling_config.yaml")
     output_generation_config = general_config["output_generation"]
     dataset_name = general_config["dataset"]

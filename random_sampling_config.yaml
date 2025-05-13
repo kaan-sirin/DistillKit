@@ -1,5 +1,6 @@
 project_name: logit-distillation-pubmedqa-random-sampled-teacher-output
-dataset: qiaojin/PubMedQA
+# dataset: qiaojin/PubMedQA
+dataset: dmis-lab/MedLFQA #TODO: change to PubMedQA
 output_generation:
   max_new_tokens: 512
   model: meta-llama/Llama-3.3-70B-Instruct 
