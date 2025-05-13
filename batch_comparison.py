@@ -216,6 +216,29 @@ Do not mention the style directly in your explanation — simply justify your pi
 """
 
         return examples, evaluation_prompt
+
+    elif dataset_name == "qiaojin/PubMedQA":
+
+        formatted_examples = []
+        for ex in examples:
+            final_decision = ex["final_decision"]
+            formatted_final_decision = final_decision[0].upper() + final_decision[1:]
+
+            formatted_examples.append(
+                {
+                    "prompt": ex["question"],
+                    "reference_answer": f"{formatted_final_decision} - {ex['long_answer']}",
+                }
+            )
+        evaluation_prompt = """You are an impartial judge comparing two candidate answers (A and B) to a biomedical question against a given reference answer.
+For each set—question, reference, A, and B—select which candidate best matches the reference.
+Provide a single choice (A or B) and a concise (<30 words) explanation.
+A non-answer (e.g., a mere literature-search plan) does not count as correct.
+If neither aligns, state that instead.
+This is a blind evaluation."""
+
+        return formatted_examples, evaluation_prompt
+
     else:
         raise NotImplementedError(f"{dataset_name} is not implemented.")
 
