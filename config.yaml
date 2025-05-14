@@ -1,5 +1,5 @@
-project_name: code-alpaca-distillation
-dataset: sahil2801/CodeAlpaca-20k
+project_name: python-alpaca-distillation
+dataset: Vezora/Tested-143k-Python-Alpaca
 models:
   teacher: meta-llama/Llama-3.1-8B-Instruct
   student: meta-llama/Llama-3.2-3B-Instruct
@@ -11,9 +11,9 @@ training:
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
   gradient_accumulation_steps: 16
-  save_steps: 2400
+  save_steps: 320
   logging_steps: 1
-  eval_steps: 24
+  eval_steps: 32
   eval_strategy: steps
   save_strategy: steps
   learning_rate: 2e-5
@@ -26,7 +26,7 @@ training:
   load_best_model_at_end: true
   metric_for_best_model: "eval_loss"
   greater_is_better: false
-  early_stopping_patience: 3
+  early_stopping_patience: 2
 distillation:
   temperature: 2.0
   alpha: 0.5

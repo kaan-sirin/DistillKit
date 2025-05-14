@@ -103,18 +103,18 @@ def code_alpaca_format(example):
         print(f"Sample keys: {list(example.keys())}")
         print(f"Error formatting example: {e}")
         raise
-    
-    
+
+
 def python_alpaca_format(example):
     try:
-        text = f"{USER_PROMPT_START}\n\n{example['instruction']}"
-        text += f"{USER_PROMPT_END}{ASSISTANT_PROMPT_START}\n\n{example['output']}{ASSISTANT_PROMPT_END}"
+        text = f"{USER_PROMPT_START}\n\n{example['instruction']}{USER_PROMPT_END}{ASSISTANT_PROMPT_START}\n\n{example['output']}{ASSISTANT_PROMPT_END}"
         return {"text": text}
     except Exception as e:
         print(f"Sample keys: {list(example.keys())}")
         print(f"Error formatting example: {e}")
         raise
-    
+
+
 def load_config(config_path="config.yaml"):
     try:
         with open(config_path, "r") as file:
