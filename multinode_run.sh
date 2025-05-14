@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --nodes=2                # two nodes
 #SBATCH --cpus-per-task=32
-#SBATCH --time=12:00:00
+#SBATCH --time=16:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=kaansirin@yahoo.com
 
