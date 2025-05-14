@@ -27,3 +27,10 @@ dmis-lab/MedLFQA:
   format_function: medlfqa_format
   test_size: 0.1
 
+
+Vezora/Tested-143k-Python-Alpaca:
+  split: train
+  num_samples: 1000
+  seed: 42
+  format_function: python_alpaca_format
+  test_size: 0.1

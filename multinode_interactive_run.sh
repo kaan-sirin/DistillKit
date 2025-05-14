@@ -32,5 +32,5 @@ srun -N 2 -n 2 \
             --machine_rank $SLURM_NODEID \
             --main_process_ip $MASTER_ADDR \
             --main_process_port $MASTER_PORT \
-            distill_logits_final.py
+            distillation_new_attempt.py
         '
