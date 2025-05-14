@@ -15,6 +15,14 @@ from distillation_utils import (
     tokenize_function,
 )
 import time
+from transformers import BitsAndBytesConfig
+
+bnb_cfg = BitsAndBytesConfig(
+    load_in_4bit=True,  # 4‑bit weights
+    bnb_4bit_quant_type="nf4",  # best accuracy
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_use_double_quant=True,
+)
 
 
 # ------------------------------------------------------------
@@ -241,6 +249,7 @@ def main():
 
     teacher_model = AutoModelForCausalLM.from_pretrained(
         config["models"]["teacher"],
+        quantization_config=bnb_cfg,
     )
     teacher_model.eval().requires_grad_(False)
 
