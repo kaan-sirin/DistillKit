@@ -242,7 +242,7 @@ This is a blind evaluation."""
     elif dataset_name == "Vezora/Tested-143k-Python-Alpaca":
         examples = [
             {
-                "prompt": x["instruction    "],
+                "prompt": x["instruction"],
                 "reference_answer": x["output"],
             }
             for x in examples
@@ -258,7 +258,7 @@ Ignore coding style, formatting, or performance unless it directly affects corre
 Choose the answer that provides more accurate and logically sound implementation matching the reference.
 
 Explain your choice in under 50 words with a concrete reason.
-This is a blind evaluation — do not speculate on authorship.
+This is a blind evaluation.
        """
 
     else:
