@@ -78,8 +78,10 @@ def evaluate_model(
         if logger:
             logger.error(f"Error loading dataset: {e}")
         raise
+    
+    if dataset_name == "Vezora/Tested-143k-Python-Alpaca": # filter out examples with input
+        dataset = dataset.filter(lambda x: x["input"] == "")
 
-    # Load model
     try:
         model, tokenizer = load_model(model_path)
         if tokenizer.pad_token is None:

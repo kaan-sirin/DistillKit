@@ -239,6 +239,28 @@ This is a blind evaluation."""
 
         return formatted_examples, evaluation_prompt
 
+    elif dataset_name == "Vezora/Tested-143k-Python-Alpaca":
+        examples = [
+            {
+                "prompt": x["instruction    "],
+                "reference_answer": x["output"],
+            }
+            for x in examples
+        ]
+
+        evaluation_prompt = """
+        You are an impartial judge evaluating code answers to a programming problem.
+You will receive a problem description, a reference solution, and two candidate solutions (A and B).
+Your task is to decide which candidate solution (A or B) better aligns with the reference solution in terms of correctness, logic, and problem-solving approach.
+
+Focus strictly on functional correctness and logical alignment with the reference.
+Ignore coding style, formatting, or performance unless it directly affects correctness.
+Choose the answer that provides more accurate and logically sound implementation matching the reference.
+
+Explain your choice in under 50 words with a concrete reason.
+This is a blind evaluation — do not speculate on authorship.
+       """
+
     else:
         raise NotImplementedError(f"{dataset_name} is not implemented.")
 
