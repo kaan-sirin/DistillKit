@@ -13,6 +13,7 @@ from distillation_utils import (
     code_alpaca_format,
     reverse_kld,
     tokenize_function,
+    gsm8k_format,
 )
 import time
 from transformers import BitsAndBytesConfig
@@ -151,13 +152,6 @@ class LogitsTrainer(SFTTrainer):
         if is_eval and "eval_loss" not in logs and "loss" in logs:
             logs["eval_loss"] = logs["loss"]
 
-        # else:
-        #     # In evaluation (or no training steps yet), only ensure our custom metrics exist
-        #     if "loss_kd" not in logs:
-        #         logs["loss_kd"] = float("nan")
-        #     if "original_loss" not in logs:
-        #         logs["original_loss"] = float("nan")
-
         super().log(logs)
     
     def prediction_step(self, model, inputs, prediction_loss_only, **_):
@@ -224,6 +218,8 @@ def main():
         dataset = dataset.map(python_alpaca_format, remove_columns=original_columns)
     elif dataset_name == "sahil2801/CodeAlpaca-20k":
         dataset = dataset.map(code_alpaca_format, remove_columns=original_columns)
+    elif dataset_name == "openai/gsm8k":
+        dataset = dataset.map(gsm8k_format, remove_columns=original_columns)
     else:
         raise ValueError(f"Add the format function for {dataset_name} from distillation_utils.py")
     tokenized_dataset = dataset.map(
@@ -250,6 +246,7 @@ def main():
     teacher_model = AutoModelForCausalLM.from_pretrained(
         config["models"]["teacher"],
         quantization_config=bnb_cfg,
+        device_map="auto",
     )
     teacher_model.eval().requires_grad_(False)
 
