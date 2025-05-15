@@ -260,6 +260,7 @@ Choose the answer that provides more accurate and logically sound implementation
 Explain your choice in under 50 words with a concrete reason.
 This is a blind evaluation.
        """
+        return examples, evaluation_prompt
 
     else:
         raise NotImplementedError(f"{dataset_name} is not implemented.")
