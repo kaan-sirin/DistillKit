@@ -246,7 +246,6 @@ def main():
     teacher_model = AutoModelForCausalLM.from_pretrained(
         config["models"]["teacher"],
         quantization_config=bnb_cfg,
-        device_map="auto",
     )
     teacher_model.eval().requires_grad_(False)
 
@@ -254,7 +253,7 @@ def main():
     student_model = AutoModelForCausalLM.from_pretrained(
         config["models"]["student"],
         **model_kwargs,
-    )
+    ) #TODO: Configure better placement of model on GPU
     student_model.gradient_checkpointing_enable()
 
     training_args_dict = config["training"].copy()
