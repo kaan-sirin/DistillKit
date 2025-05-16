@@ -33,6 +33,6 @@ accelerate launch \
   --machine_rank $SLURM_NODEID \
   --main_process_ip $MASTER_ADDR \
   --main_process_port $MASTER_PORT \
-  --same_network true \
+  --same_network \
   --mixed_precision bf16 \
   distillation_new_attempt.py
