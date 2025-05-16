@@ -4,9 +4,9 @@
 #SBATCH --qos=normal
 #SBATCH --gres=gpu:4       
 #SBATCH --ntasks-per-node=1
-#SBATCH --nodes=2               
+#SBATCH --nodes=4               
 #SBATCH --cpus-per-task=32
-#SBATCH --time=2:00:00
+#SBATCH --time=6:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=kaansirin@yahoo.com
 
@@ -16,6 +16,7 @@ source .venv/bin/activate
 
 export TORCH_HOME=$WORK/torch-cache
 export HF_HOME=$WORK/hf-cache
+export NUM_NODES=4
 export GPUS_PER_NODE=4
 
 export HF_HUB_OFFLINE=1
@@ -29,7 +30,7 @@ export MASTER_PORT=29500
 
 accelerate launch \
   --num_processes $GPUS_PER_NODE \
-  --num_machines 2 \
+  --num_machines $NUM_NODES \
   --machine_rank $SLURM_NODEID \
   --main_process_ip $MASTER_ADDR \
   --main_process_port $MASTER_PORT \
