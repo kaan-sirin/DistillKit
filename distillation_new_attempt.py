@@ -14,6 +14,7 @@ from distillation_utils import (
     reverse_kld,
     tokenize_function,
     gsm8k_format,
+    magpie_format,
 )
 import time
 from transformers import BitsAndBytesConfig
@@ -164,20 +165,26 @@ def main():
     load_dotenv()
     HF_TOKEN = os.getenv("HF_TOKEN")
     config = load_config()
-    dataset_name = config["dataset"]
+    
+    dataset_name = config["dataset"]["name"]
+    num_samples = config["dataset"].get("num_samples", None)
     dataset_config = load_config("datasets.yaml")[dataset_name]
-
+    test_size = config["dataset"].get("test_size", 0.1)
+    
     # Set up environment
     os.environ["WANDB_PROJECT"] = config["project_name"]
     accelerator = Accelerator(mixed_precision="bf16")
 
-    group_name = f"{config['dataset'].split('/')[-1].replace('-', '_')}_{config['distillation']['kl_divergence']}_{dataset_config['num_samples']}_samples_{config['training']['num_train_epochs']}_epochs_{time.strftime('%m_%d_%H_%M')}"
+    group_name = f"{dataset_name.split('/')[-1].replace('-', '_')}_{config['distillation']['kl_divergence']}_"
+    if num_samples is not None:
+        group_name += f"{num_samples}_samples_"
+    group_name += f"{config['training']['num_train_epochs']}_epochs_{time.strftime('%m_%d_%H_%M')}"
+    
     run_name = f"process_{accelerator.process_index}_{time.strftime('%m_%d_%H_%M')}"
 
     # Output directory
     output_base = config["training"]["output_dir"]
     output_dir = os.path.join(output_base, group_name)
-    os.makedirs(output_dir, exist_ok=True)
 
     # Load and preprocess dataset
     print(f"Process {accelerator.process_index}: Loading dataset...")
@@ -192,12 +199,15 @@ def main():
     )
     if dataset_name == "Vezora/Tested-143k-Python-Alpaca":
         dataset = dataset.filter(lambda x: x["input"] == "")  # python alpaca quirk
+    elif dataset_name == "nicher92/magpie_llama70b_260k_filtered_swedish": # distill on non-math entries
+        dataset = dataset.filter(lambda x: (x["task_category"] != "Math" and "Math" not in x["other_task_category"]))
+
 
     # First take a subset of the dataset if specified, then shuffle
     # This is because I want to know which samples are used for training
-    if "num_samples" in dataset_config:
-        dataset = dataset.select(range(dataset_config["num_samples"]))
-    dataset = dataset.shuffle(seed=dataset_config["seed"])
+    if num_samples is not None:
+        dataset = dataset.select(range(num_samples))
+    dataset = dataset.shuffle(seed=42)
 
     # Load tokenizers
     print(f"Process {accelerator.process_index}: Loading tokenizer...")
@@ -220,6 +230,9 @@ def main():
         dataset = dataset.map(code_alpaca_format, remove_columns=original_columns)
     elif dataset_name == "openai/gsm8k":
         dataset = dataset.map(gsm8k_format, remove_columns=original_columns)
+    elif dataset_name == "nicher92/magpie_llama70b_260k_filtered_swedish":
+        dataset = dataset.map(magpie_format, remove_columns=original_columns)
+        
     else:
         raise ValueError(f"Add the format function for {dataset_name} from distillation_utils.py")
     tokenized_dataset = dataset.map(
@@ -228,9 +241,9 @@ def main():
         num_proc=8,
         remove_columns=["text"],
     )
-    if "test_size" in dataset_config:
+    if test_size is not None:
         tokenized_dataset = tokenized_dataset.train_test_split(
-            test_size=dataset_config["test_size"]
+            test_size=test_size
         )
 
     print(
@@ -264,8 +277,6 @@ def main():
     training_arguments = TrainingArguments(**training_args_dict)
     
     callbacks = []
-    
-    # Add early stopping if configured
     if training_arguments.load_best_model_at_end:
         callbacks.append(
             EarlyStoppingCallback(
@@ -285,7 +296,7 @@ def main():
                 "distillation_method": config["distillation"]["method"],
                 "alpha": config["distillation"]["alpha"],
                 "temperature": config["distillation"]["temperature"],
-                "num_samples": dataset_config["num_samples"],
+                "num_samples": num_samples,
                 "num_epochs": config["training"]["num_train_epochs"],
                 "group_name": group_name,
                 "training_args": training_args_dict,
@@ -311,6 +322,7 @@ def main():
     trainer.train(resume_from_checkpoint=config["training"]["resume_from_checkpoint"])
 
     # Save the final model
+    os.makedirs(output_dir, exist_ok=True)
     trainer.save_model(output_dir)
 
 

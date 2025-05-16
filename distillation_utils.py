@@ -122,6 +122,17 @@ def gsm8k_format(example):
         print(f"Sample keys: {list(example.keys())}")
         print(f"Error formatting example: {e}")
         raise
+    
+    
+def magpie_format(example):
+    try:
+        text = f"{USER_PROMPT_START}\n\n{example['instruction']}{USER_PROMPT_END}{ASSISTANT_PROMPT_START}\n\n{example['response']}{ASSISTANT_PROMPT_END}"
+        return {"text": text}
+    except Exception as e:
+        print(f"Sample keys: {list(example.keys())}")
+        print(f"Error formatting example: {e}")
+        raise
+
 
 def load_config(config_path="config.yaml"):
     try:
