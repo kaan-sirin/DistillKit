@@ -20,6 +20,6 @@ export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export WANDB_MODE=offline
 export TOKENIZERS_PARALLELISM=false
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 
 accelerate launch --num_processes $GPUS_PER_NODE distillation_new_attempt.py
