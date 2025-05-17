@@ -32,8 +32,8 @@ srun \
   accelerate launch \
     --num_processes $GPUS_PER_NODE \
     --num_machines  $NUM_NODES \
-    --machine_rank  $SLURM_PROCID \    
-    --main_process_ip   $MASTER_ADDR \
+    --machine_rank $SLURM_PROCID \
+    --main_process_ip $MASTER_ADDR \
     --main_process_port $MASTER_PORT \
     --mixed_precision bf16 \
     distillation_new_attempt.py
