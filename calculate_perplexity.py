@@ -90,6 +90,9 @@ if __name__ == "__main__":
                     "perplexity": result["mean_perplexity"],
                 }
             )
+
+            data.sort(key=lambda item: item["perplexity"])
+
             with open(PERPLEXITY_FILE, "w") as f:
                 json.dump(data, f, indent=4)
     except ValueError as ve:
