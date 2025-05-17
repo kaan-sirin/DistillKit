@@ -28,12 +28,12 @@ export TOKENIZERS_PARALLELISM=false
 export MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n1)
 export MASTER_PORT=29500
 
-accelerate launch \
-  --num_processes $GPUS_PER_NODE \
-  --num_machines $NUM_NODES \
-  --machine_rank $SLURM_NODEID \
-  --main_process_ip $MASTER_ADDR \
-  --main_process_port $MASTER_PORT \
-  --same_network \
-  --mixed_precision bf16 \
-  distillation_new_attempt.py
+srun \
+  accelerate launch \
+    --num_processes $GPUS_PER_NODE \
+    --num_machines  $NUM_NODES \
+    --machine_rank  $SLURM_PROCID \    
+    --main_process_ip   $MASTER_ADDR \
+    --main_process_port $MASTER_PORT \
+    --mixed_precision bf16 \
+    distillation_new_attempt.py
