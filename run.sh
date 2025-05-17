@@ -23,4 +23,4 @@ export WANDB_MODE=offline
 
 export TOKENIZERS_PARALLELISM=false
 
-accelerate launch --num_processes 1   distillation_new_attempt.py
+accelerate launch --num_processes 1 distillation_new_attempt.py
