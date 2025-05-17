@@ -1,0 +1,30 @@
+project_name: math-sft
+dataset: 
+  name: openai/gsm8k
+  num_samples: 3000 
+  test_size: 0.1
+model: meta-llama/Llama-3.2-3B-Instruct
+tokenizer:
+  max_length: 1024
+training:
+  output_dir: ./distilled_models
+  num_train_epochs: 3 
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 8
+  save_steps: 140
+  logging_steps: 1
+  eval_steps: 14
+  eval_strategy: steps
+  save_strategy: steps
+  learning_rate: 2e-5
+  weight_decay: 0.05
+  warmup_ratio: 0.1
+  lr_scheduler_type: cosine
+  resume_from_checkpoint: null # Set to a path or True to resume from the latest checkpoint
+  fp16: false
+  bf16: true
+  load_best_model_at_end: true
+  metric_for_best_model: "eval_loss"
+  greater_is_better: false
+  early_stopping_patience: 2
