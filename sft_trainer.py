@@ -125,7 +125,7 @@ def main():
         model=model,
         train_dataset=tokenized_dataset["train"],
         eval_dataset=tokenized_dataset["test"],
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         args=training_arguments,
         callbacks=callbacks,
     )
