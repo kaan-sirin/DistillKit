@@ -197,8 +197,11 @@ def ask_model_question(
 if __name__ == "__main__":
     general_config = load_config("random_sampling_config.yaml")
     output_generation_config = general_config["output_generation"]
-    dataset_name = general_config["dataset"]
+    dataset_name = general_config["dataset"]['name']
+    num_samples = general_config["dataset"].get("num_samples", None)
     dataset_config = load_config("datasets.yaml")[dataset_name]
+    
+    random.seed(42)
     
     parser = argparse.ArgumentParser(description="Evaluate a model on a dataset")
     parser.add_argument("--model_path", type=str, help="Model path")
@@ -215,7 +218,13 @@ if __name__ == "__main__":
         output_generation_config["model"] = args.model_path
     if args.batch_size is not None:
         output_generation_config["batch_size"] = args.batch_size
-    num_samples = args.num_samples if args.num_samples is not None else 8
+    
+    if args.num_samples is not None:
+        num_samples = args.num_samples
+    elif num_samples is not None:
+        num_samples = num_samples
+    else:
+        num_samples = 100
     
         
     evaluate_model(
