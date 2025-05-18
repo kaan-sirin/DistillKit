@@ -259,6 +259,7 @@ def main():
     os.environ["WANDB_PROJECT"] = cfg["project_name"]
 
     # ---------- dataset & sparse logits ------------------------------------------------
+    print("Loading dataset...")
     ds = (
         load_dataset(
             dataset_name,
@@ -268,10 +269,14 @@ def main():
         if dataset_config.get("subset")
         else load_dataset(dataset_name, split=dataset_config["split"])
     )
+    print("Dataset loaded, applying filtering if needed...")
     if dataset_name == "tatsu-lab/alpaca":
         ds = ds.filter(lambda x: x["input"] == "")  # keep alpaca‑style 0‑shot
-
+    print("Loading generation config...")
     output_generation_config = cfg["output_generation"]
+    print("Generation config loaded")
+    
+    print("Loading sparse logits...")
     if distillation_config.get("logits_path") is not None:
         print(f"Loading sparse logits from {distillation_config['logits_path']}")
         sparse = torch.load(distillation_config["logits_path"])
@@ -280,6 +285,7 @@ def main():
             Path(output_generation_config["logits_dir"])
             / f"teacher_random_logits_{num_samples}_R{output_generation_config['draws']}_tau{output_generation_config['tau']}.pt"
         )
+    print("Sparse logits loaded")
     if num_samples is not None:
         ds, sparse = ds.select(range(num_samples)), sparse[:num_samples]
 
@@ -287,7 +293,9 @@ def main():
         raise ValueError("Dataset / sparse logits length mismatch")
 
     original_columns = ds.column_names
+    print("Adding sparse logits to dataset...")
     ds = ds.add_column("sparse_logits", sparse)
+    print("Sparse logits added to dataset")
 
     original_length = len(ds)
     print(f"Original dataset length: {original_length}")
