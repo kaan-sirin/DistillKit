@@ -6,6 +6,7 @@ from datasets import load_dataset
 from batch_comparison import setup, load_model
 from distillation_utils import load_config, format_dialog
 import argparse
+from accelerate import Accelerator
 
 # --------------------------------------------------------------------------- #
 def random_sample_distribution(logits, draws=50, tau=1.0):
@@ -50,6 +51,8 @@ def generate_and_save_random_sampled_logits(
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     
+    # Initialize accelerator
+    accelerator = Accelerator()
     logger = setup()
     logger.info(f"[RSKD] Generating sampled logits from {model_name}")
 
@@ -61,9 +64,13 @@ def generate_and_save_random_sampled_logits(
     end_idx = min(len(ds), start_idx + (num_samples or len(ds)))
     actual_num_samples = end_idx - start_idx
 
+    # Load model with accelerator
     model, tok = load_model(model_name)
     tok.pad_token = tok.pad_token or tok.eos_token
     eot_id = tok.convert_tokens_to_ids("<|eot_id|>")
+    
+    # Prepare model with accelerator
+    model = accelerator.prepare(model)
 
     # ------------------------------------------------------------------ out
     out_dir = Path(
@@ -76,11 +83,11 @@ def generate_and_save_random_sampled_logits(
     # ------------------------------------------------------------------ loop
     for b0 in tqdm(
         range(start_idx, end_idx, batch_size), 
-        desc=f"Random‑sampling {actual_num_samples} ex from {start_idx} to {end_idx-1}"
+        desc=f"Generating sparse outputs for {actual_num_samples} examples from {start_idx} to {end_idx-1}"
     ):
         b1 = min(b0 + batch_size, end_idx)  # b1 is the batch end index
         prompts = []
-        end_marker = "<|eot_id|><|start_header_id|>user<|end_header_id|>"
+        end_marker = "<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
         for ex in ds.select(range(b0, b1)):
             if dataset_name == "tatsu-lab/alpaca":
                 prompt = (system_prompt or "") + ex["instruction"] + end_marker
@@ -98,15 +105,15 @@ def generate_and_save_random_sampled_logits(
                 prompt = (system_prompt or "") + ex["question"] + end_marker
             prompts.append(prompt)
 
-        inp = tok(prompts, padding=True, return_tensors="pt").to(model.device)
+        inp = tok(prompts, padding=True, return_tensors="pt")
+        # moving inputs to device through accelerator
+        inp = {k: v.to(accelerator.device) for k, v in inp.items()}
 
-        with amp.autocast("cuda"):
+        with accelerator.autocast():
             gen = model.generate(**inp,
                                  max_new_tokens=max_new_tokens,
                                  do_sample=False, num_beams=1,
                                  return_dict_in_generate=True, output_scores=True)
-            
-        
         
         for seq_i in range(len(prompts)):
             step_pairs = []  # this sequence
@@ -142,10 +149,14 @@ def generate_and_save_random_sampled_logits(
                 print(f"###########################################\n")
             all_steps.append(step_pairs)
 
-    # ------------------------------------------------------------------ save
-    save_path = out_dir / f"teacher_random_logits_{start_idx}-{end_idx-1}_R{draws}_tau{tau}.pt"
-    torch.save(all_steps, save_path)
-    logger.info(f"[RSKD] wrote {len(all_steps)} sequences ({start_idx}-{end_idx-1}) → {save_path}")
+    accelerator.wait_for_everyone()
+    
+    # save only on the main process
+    if accelerator.is_main_process:
+        save_path = out_dir / f"teacher_random_logits_{start_idx}-{end_idx-1}_R{draws}_tau{tau}.pt"
+        torch.save(all_steps, save_path)
+        logger.info(f"[RSKD] wrote {len(all_steps)} sequences ({start_idx}-{end_idx-1}) → {save_path}")
+    
     return all_steps
 
 
