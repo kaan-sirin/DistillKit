@@ -158,22 +158,24 @@ if __name__ == "__main__":
     
     general_config = load_config("random_sampling_config.yaml")
     config = general_config["output_generation"]
-    dataset_name = general_config["dataset"]
+    dataset_name = general_config["dataset"]['name']
+    num_samples = general_config["dataset"].get('num_samples', None)
+
     dataset_config = load_config("datasets.yaml")[dataset_name]
-    
+
     if args.start_idx is not None:
         config["start_idx"] = args.start_idx
     if args.num_samples is not None:
-        dataset_config["num_samples"] = args.num_samples
+        num_samples = args.num_samples
 
     generate_and_save_random_sampled_logits(
         model_name=config["model"],
         dataset_name=dataset_name,
-        seed=dataset_config["seed"],
+        seed=42,
         dataset_subset=dataset_config.get("subset", None),
         dataset_split=dataset_config["split"],
         system_prompt=dataset_config.get("system_prompt", None),
-        num_samples=dataset_config["num_samples"],
+        num_samples=num_samples,
         start_idx=config.get("start_idx", 0),
         max_new_tokens=config["max_new_tokens"],
         batch_size=config["batch_size"],
