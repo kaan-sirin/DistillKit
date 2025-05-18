@@ -18,6 +18,7 @@ from distillation_utils import (
     alpaca_format,
     dailydialog_format,
     pubmedqa_format,
+    random_sampled_gsm8k_format
 )
 from distill_logits_final import tokenize_function
 import wandb
@@ -232,7 +233,8 @@ class SparseLogitsCollator(DefaultDataCollator):
 def main():
     load_dotenv()
     cfg = load_config("random_sampling_config.yaml")
-    dataset_name = cfg["dataset"]
+    dataset_name = cfg["dataset"]["name"]
+    num_samples = cfg["dataset"].get("num_samples", None)
     dataset_config = load_config("datasets.yaml")[dataset_name]
     distillation_config = cfg["distillation"]
 
@@ -240,7 +242,11 @@ def main():
     accel = Accelerator(mixed_precision="bf16")
 
     # WARNING: currently only supports forward KL
-    group_name = f"{dataset_name.split('/')[-1].replace('-', '_')}_{distillation_config['kl_divergence']}_{dataset_config['num_samples']}_samples_{cfg['training']['num_train_epochs']}_epochs_{time.strftime('%m_%d_%H_%M')}"
+    group_name = f"{dataset_name.split('/')[-1].replace('-', '_')}_"
+    if num_samples is not None:
+        group_name += f"{num_samples}s_"
+    group_name += f"{cfg['training']['num_train_epochs']}e_{time.strftime('%m_%d_%H_%M')}"
+    
     run_name = f"process_{accel.process_index}_{time.strftime('%m_%d_%H_%M')}"
 
     # Output directory
@@ -263,17 +269,16 @@ def main():
         ds = ds.filter(lambda x: x["input"] == "")  # keep alpaca‑style 0‑shot
 
     output_generation_config = cfg["output_generation"]
-    if distillation_config["logits_path"] is not None:
+    if distillation_config.get("logits_path") is not None:
         print(f"Loading sparse logits from {distillation_config['logits_path']}")
         sparse = torch.load(distillation_config["logits_path"])
     else:
         sparse = torch.load(
             Path(output_generation_config["logits_dir"])
-            / f"teacher_random_logits_{dataset_config['num_samples']}_R{output_generation_config['draws']}_tau{output_generation_config['tau']}.pt"
+            / f"teacher_random_logits_{num_samples}_R{output_generation_config['draws']}_tau{output_generation_config['tau']}.pt"
         )
-    if "num_samples" in dataset_config:
-        n = dataset_config["num_samples"]
-        ds, sparse = ds.select(range(n)), sparse[:n]
+    if num_samples is not None:
+        ds, sparse = ds.select(range(num_samples)), sparse[:num_samples]
 
     if len(ds) != len(sparse):
         raise ValueError("Dataset / sparse logits length mismatch")
@@ -310,6 +315,12 @@ def main():
     elif dataset_name == "qiaojin/PubMedQA":
         ds = ds.map(
             lambda e: pubmedqa_format(e, tok),
+            remove_columns=original_columns,
+            load_from_cache_file=True,
+        )
+    elif dataset_name == "openai/gsm8k":
+        ds = ds.map(
+            lambda e: random_sampled_gsm8k_format(e, tok),
             remove_columns=original_columns,
             load_from_cache_file=True,
         )
@@ -367,7 +378,7 @@ def main():
                 "student_model": distillation_config["student"],
                 "temperature": distillation_config["temperature"],
                 "kl_divergence": distillation_config["kl_divergence"],
-                "num_samples": dataset_config["num_samples"],
+                "num_samples": num_samples,
                 "num_epochs": cfg["training"]["num_train_epochs"],
                 "group_name": group_name,
                 "training_args": training_args_dict,

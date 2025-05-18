@@ -123,6 +123,15 @@ def gsm8k_format(example):
         print(f"Error formatting example: {e}")
         raise
     
+def random_sampled_gsm8k_format(example, tokenizer):
+    try:
+        decoded_output = decode_sparse_sequence(example["sparse_logits"], tokenizer)
+        text = f"{USER_PROMPT_START}\n\n{example['question']}{USER_PROMPT_END}{ASSISTANT_PROMPT_START}\n\n{decoded_output}"
+        return {"text": text}
+    except Exception as e:
+        print(f"Sample keys: {list(example.keys())}")
+        print(f"Error formatting example: {e}")
+        raise
     
 def magpie_format(example):
     try:

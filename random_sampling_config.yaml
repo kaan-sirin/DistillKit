@@ -1,7 +1,7 @@
 project_name: logit-distillation-gsm8k-random-sampled-teacher-output
 dataset: 
   name: openai/gsm8k
-  num_samples: 1500
+  num_samples: 96
 output_generation:
   max_new_tokens: 512
   model: meta-llama/Llama-3.3-70B-Instruct 
@@ -12,7 +12,8 @@ output_generation:
   logits_dir: generated_tokens/gsm8k/
 distillation:
   student: meta-llama/Llama-3.1-8B-Instruct
-  logits_path: /leonardo_work/EUHPC_D17_084/DistillKit/generated_tokens/gsm8k/combined_sparse_logits_10000.pt # optional
+  # logits_path: /leonardo_work/EUHPC_D17_084/DistillKit/generated_tokens/gsm8k/combined_sparse_logits_7473.pt # optional
+  logits_path: /leonardo_work/EUHPC_D17_084/DistillKit/generated_tokens/gsm8k/teacher_random_logits_0-95_R1000000_tau0.8.pt # optional
   max_length: 1024
   use_flash_attention: false 
   temperature: 1.0
@@ -24,9 +25,8 @@ training:
   per_device_eval_batch_size: 2
   gradient_accumulation_steps: 8
   logging_steps: 1
-  eval_strategy: steps
-  eval_steps: 10
-  save_steps: 100
+  eval_strategy: epoch
+  save_strategy: epoch
   learning_rate: 2e-5
   weight_decay: 0.05
   warmup_ratio: 0.1
