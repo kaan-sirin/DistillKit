@@ -81,6 +81,8 @@ def evaluate_model(
     
     if dataset_name == "Vezora/Tested-143k-Python-Alpaca": # filter out examples with input
         dataset = dataset.filter(lambda x: x["input"] == "")
+    if dataset_name == "nicher92/magpie_llama70b_260k_filtered_swedish": # only keep math examples
+        dataset = dataset.filter(lambda x: x["task_category"] == "Math")
 
     try:
         model, tokenizer = load_model(model_path)
@@ -226,7 +228,7 @@ if __name__ == "__main__":
     else:
         num_samples = 100
     
-        
+    timestamp = datetime.now().strftime("%m%d_%H%M")
     evaluate_model(
         model_path=output_generation_config["model"],
         dataset_name=dataset_name,
@@ -237,7 +239,7 @@ if __name__ == "__main__":
         start_index=args.start_index,
         max_new_tokens=output_generation_config["max_new_tokens"],
         batch_size=output_generation_config["batch_size"],
-        output_filename=f"{output_generation_config['model']}_{dataset_name}_{num_samples}_generations".replace("/", "_"),
+        output_filename=f"{num_samples}_generations_{timestamp}",
         enable_logging=args.enable_logging
     )
     
