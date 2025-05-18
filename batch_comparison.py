@@ -262,6 +262,26 @@ This is a blind evaluation.
        """
         return examples, evaluation_prompt
 
+    elif dataset_name == "nicher92/magpie_llama70b_260k_filtered_swedish":
+        examples = [
+            {
+                "prompt": x["instruction"],
+                "reference_answer": x["response"],
+            }
+            for x in examples
+        ]
+
+        evaluation_prompt = """
+        You are an impartial judge evaluating answers to math problems.
+        You will receive a problem and two candidate answers (A and B).
+        Evaluate which candidate answer (A or B) is better at answering the problem.
+        Focus on accuracy and logical reasoning.
+        Choose the answer that provides more precise reasoning that correctly answers the problem.
+        Explain your choice in <50 words with a clear, concrete reason.
+        This is a blind evaluation.
+       """
+        return examples, evaluation_prompt
+
     else:
         raise NotImplementedError(f"{dataset_name} is not implemented.")
 

@@ -1,7 +1,9 @@
 project_name: logit-distillation-gsm8k-random-sampled-teacher-output
 dataset: 
-  name: openai/gsm8k
-  num_samples: 7473
+  # name: openai/gsm8k
+  # num_samples: 7473
+  name: nicher92/magpie_llama70b_260k_filtered_swedish
+  num_samples: 20_000
 output_generation:
   max_new_tokens: 512
   model: meta-llama/Llama-3.3-70B-Instruct 

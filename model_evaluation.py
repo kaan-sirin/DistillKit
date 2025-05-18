@@ -228,7 +228,7 @@ if __name__ == "__main__":
     else:
         num_samples = 100
     
-    timestamp = datetime.now().strftime("%m%d_%H%M")
+    timestamp = datetime.now().strftime("%m%d_%H%M%S")
     evaluate_model(
         model_path=output_generation_config["model"],
         dataset_name=dataset_name,
