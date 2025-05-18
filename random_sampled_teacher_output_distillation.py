@@ -4,8 +4,8 @@ from pathlib import Path
 
 import torch, torch.nn.functional as F
 from datetime import timedelta
-from accelerate import Accelerator, InitProcessGroupKwargsfrom 
-datasets import load_dataset
+from accelerate import Accelerator, InitProcessGroupKwargs
+from datasets import load_dataset
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -19,7 +19,7 @@ from distillation_utils import (
     alpaca_format,
     dailydialog_format,
     pubmedqa_format,
-    random_sampled_gsm8k_format
+    random_sampled_gsm8k_format,
 )
 from distill_logits_final import tokenize_function
 import wandb
@@ -159,10 +159,10 @@ class SparseKDLossTrainer(SFTTrainer):
 
                 # scale by temperature
                 s_scaled = s_log / self.T
-                
-                alpha = 1 / self.T          
-                tmp   = t_probs ** alpha
-                t_probs_scaled = tmp / tmp.sum() 
+
+                alpha = 1 / self.T
+                tmp = t_probs**alpha
+                t_probs_scaled = tmp / tmp.sum()
 
                 # forward KL on this K‑vector
                 kl = F.kl_div(
@@ -212,7 +212,7 @@ class SparseKDLossTrainer(SFTTrainer):
             logs["eval_loss"] = logs["loss"]
 
         super().log(logs)
-    
+
     def prediction_step(self, model, inputs, prediction_loss_only, **_):
         with torch.no_grad(), self.compute_loss_context_manager():
             loss, _ = self.compute_loss(model, inputs, return_outputs=True)
@@ -240,16 +240,17 @@ def main():
     distillation_config = cfg["distillation"]
 
     token = os.getenv("HF_TOKEN")
-    timeout = InitProcessGroupKwargs(timeout=timedelta(hours=1))   # 1-hour NCCL watchdog
-    accel   = Accelerator(mixed_precision="bf16",
-                        kwargs_handlers=[timeout])
+    timeout = InitProcessGroupKwargs(timeout=timedelta(hours=1))  # 1-hour NCCL watchdog
+    accel = Accelerator(mixed_precision="bf16", kwargs_handlers=[timeout])
 
     # WARNING: currently only supports forward KL
     group_name = f"{dataset_name.split('/')[-1].replace('-', '_')}_"
     if num_samples is not None:
         group_name += f"{num_samples}s_"
-    group_name += f"{cfg['training']['num_train_epochs']}e_{time.strftime('%m_%d_%H_%M')}"
-    
+    group_name += (
+        f"{cfg['training']['num_train_epochs']}e_{time.strftime('%m_%d_%H_%M')}"
+    )
+
     run_name = f"process_{accel.process_index}_{time.strftime('%m_%d_%H_%M')}"
 
     # Output directory
@@ -362,13 +363,11 @@ def main():
 
     # Configure callbacks
     callbacks = []
-    
+
     # Add early stopping if configured
     if training_args.load_best_model_at_end:
         callbacks.append(
-            EarlyStoppingCallback(
-                early_stopping_patience=early_stopping_patience
-            )
+            EarlyStoppingCallback(early_stopping_patience=early_stopping_patience)
         )
 
     if accel.is_main_process:
@@ -390,7 +389,7 @@ def main():
                     "patience": early_stopping_patience,
                     "metric": training_args.metric_for_best_model,
                     "greater_is_better": training_args.greater_is_better,
-                }
+                },
             },
             reinit=False,
         )
