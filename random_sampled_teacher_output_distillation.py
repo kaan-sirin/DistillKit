@@ -4,7 +4,7 @@ from pathlib import Path
 
 import torch, torch.nn.functional as F
 from datetime import timedelta
-from accelerate import Accelerator, InitProcessGroupKwargs
+from accelerate import Accelerator
 from datasets import load_dataset
 from transformers import (
     AutoTokenizer,
@@ -240,8 +240,7 @@ def main():
     distillation_config = cfg["distillation"]
 
     token = os.getenv("HF_TOKEN")
-    timeout = InitProcessGroupKwargs(timeout=timedelta(hours=1))  # 1-hour NCCL watchdog
-    accel = Accelerator(mixed_precision="bf16", kwargs_handlers=[timeout])
+    accel = Accelerator(mixed_precision="bf16")
 
     # WARNING: currently only supports forward KL
     group_name = f"{dataset_name.split('/')[-1].replace('-', '_')}_"
@@ -408,10 +407,7 @@ def main():
     trainer = accel.prepare(trainer)
     trainer.train(resume_from_checkpoint=cfg["training"]["resume_from_checkpoint"])
     os.makedirs(output_dir, exist_ok=True)
-    if accel.is_main_process:
-        trainer.save_model(output_dir)
-        wandb.finish()
-    accel.wait_for_everyone()
+    trainer.save_model(output_dir)
 
 
 # --------------------------------------------------------------------------- #
