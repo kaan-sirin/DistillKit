@@ -408,7 +408,10 @@ def main():
     trainer = accel.prepare(trainer)
     trainer.train(resume_from_checkpoint=cfg["training"]["resume_from_checkpoint"])
     os.makedirs(output_dir, exist_ok=True)
-    trainer.save_model(output_dir)
+    if accel.is_main_process:
+        trainer.save_model(output_dir)
+        wandb.finish()
+    accel.wait_for_everyone()
 
 
 # --------------------------------------------------------------------------- #
