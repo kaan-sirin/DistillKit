@@ -80,7 +80,7 @@ def generate_and_save_random_sampled_logits(
     ):
         b1 = min(b0 + batch_size, end_idx)  # b1 is the batch end index
         prompts = []
-        end_marker = "<|eot_id|>"
+        end_marker = "<|eot_id|><|start_header_id|>user<|end_header_id|>"
         for ex in ds.select(range(b0, b1)):
             if dataset_name == "tatsu-lab/alpaca":
                 prompt = (system_prompt or "") + ex["instruction"] + end_marker
@@ -94,6 +94,8 @@ def generate_and_save_random_sampled_logits(
                 )
                 user_prompt = f"Question: {ex['question']}\n\nContext: {formatted_final_decision} - {ex['long_answer']}"
                 prompt = (system_prompt or "") + user_prompt + end_marker
+            elif dataset_name == "openai/gsm8k":
+                prompt = (system_prompt or "") + ex["question"] + end_marker
             prompts.append(prompt)
 
         inp = tok(prompts, padding=True, return_tensors="pt").to(model.device)

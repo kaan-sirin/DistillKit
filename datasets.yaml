@@ -24,6 +24,8 @@ openai/gsm8k:
   subset: main
   split: train
   format_function: gsm8k_format
+  system_prompt: <|begin_of_text|><|start_header_id|>system<|end_header_id|>You are a step-by-step math reasoning assistant. For each question, break down the logic clearly, perform all calculations explicitly, and verify your solution before providing the final answer.<|eot_id|><|start_header_id|>user<|end_header_id|>
+
 
 nicher92/magpie_llama70b_260k_filtered_swedish:
   split: train

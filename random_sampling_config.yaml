@@ -1,6 +1,5 @@
-project_name: logit-distillation-pubmedqa-random-sampled-teacher-output
-# dataset: qiaojin/PubMedQA
-dataset: Vezora/Tested-143k-Python-Alpaca #TODO: change to PubMedQA
+project_name: logit-distillation-gsm8k-random-sampled-teacher-output
+dataset: openai/gsm8k
 output_generation:
   max_new_tokens: 512
   model: meta-llama/Llama-3.3-70B-Instruct 
@@ -8,23 +7,24 @@ output_generation:
   tau: 0.8
   batch_size: 8
   start_idx: 0
-  logits_dir: generated_tokens/pubmedqa/
+  logits_dir: generated_tokens/gsm8k/
 distillation:
   student: meta-llama/Llama-3.1-8B-Instruct
-  logits_path: /leonardo_work/EUHPC_D17_084/DistillKit/generated_tokens/pubmedqa/combined_sparse_logits_10000.pt # optional
+  logits_path: /leonardo_work/EUHPC_D17_084/DistillKit/generated_tokens/gsm8k/combined_sparse_logits_10000.pt # optional
   max_length: 1024
-  use_flash_attention: false # currently reverse isn't supported 
-  temperature: 2.0
-  kl_divergence: forward
+  use_flash_attention: false 
+  temperature: 1.0
+  kl_divergence: forward # currently reverse isn't supported 
 training:
   output_dir: ./distilled_models/random_sampling_sparse_logits
   num_train_epochs: 3
-  per_device_train_batch_size: 1
-  per_device_eval_batch_size: 1
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
   gradient_accumulation_steps: 8
   logging_steps: 1
-  eval_strategy: epoch
-  save_strategy: epoch
+  eval_strategy: steps
+  eval_steps: 10
+  save_steps: 100
   learning_rate: 2e-5
   weight_decay: 0.05
   warmup_ratio: 0.1
