@@ -3,8 +3,9 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 import torch, torch.nn.functional as F
-from accelerate import Accelerator
-from datasets import load_dataset
+from datetime import timedelta
+from accelerate import Accelerator, InitProcessGroupKwargsfrom 
+datasets import load_dataset
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -239,7 +240,9 @@ def main():
     distillation_config = cfg["distillation"]
 
     token = os.getenv("HF_TOKEN")
-    accel = Accelerator(mixed_precision="bf16")
+    timeout = InitProcessGroupKwargs(timeout=timedelta(hours=1))   # 1-hour NCCL watchdog
+    accel   = Accelerator(mixed_precision="bf16",
+                        kwargs_handlers=[timeout])
 
     # WARNING: currently only supports forward KL
     group_name = f"{dataset_name.split('/')[-1].replace('-', '_')}_"
