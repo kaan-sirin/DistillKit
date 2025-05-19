@@ -1,11 +1,11 @@
 project_name: logit-distillation-gsm8k-random-sampled-teacher-output
 dataset: 
   name: openai/gsm8k
-  num_samples: 7473
+  num_samples: 1600
 output_generation:
   max_new_tokens: 512
   model: meta-llama/Llama-3.3-70B-Instruct 
-  draws: 100_000
+  draws: 50_000
   tau: 0.8
   batch_size: 16
   start_idx: 0

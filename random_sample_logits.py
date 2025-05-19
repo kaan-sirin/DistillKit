@@ -80,7 +80,7 @@ def generate_and_save_random_sampled_logits(
     ):
         b1 = min(b0 + batch_size, end_idx)  # b1 is the batch end index
         prompts = []
-        end_marker = "<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+        end_marker = "<|eot_id|>"
         for ex in ds.select(range(b0, b1)):
             if dataset_name == "tatsu-lab/alpaca":
                 prompt = (system_prompt or "") + ex["instruction"] + end_marker

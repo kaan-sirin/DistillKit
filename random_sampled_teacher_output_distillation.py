@@ -40,6 +40,7 @@ class SparseKDLossTrainer(SFTTrainer):
         super().__init__(*args, **kwargs)
         self.processing_class = processing_class
         self.T = distillation_config["temperature"]
+        print(f"Temperature is set to {self.T}")
 
         self._accumulated_loss = 0.0
         self._accumulation_step_count = 0
@@ -158,11 +159,14 @@ class SparseKDLossTrainer(SFTTrainer):
                 s_log = logits[filtered_idx, current_logit_idx, ids]
 
                 # scale by temperature
-                s_scaled = s_log / self.T
-
-                alpha = 1 / self.T
-                tmp = t_probs**alpha
-                t_probs_scaled = tmp / tmp.sum()
+                if not self.T == 1.0:
+                    s_scaled = s_log / self.T
+                    alpha = 1 / self.T
+                    tmp = t_probs**alpha
+                    t_probs_scaled = tmp / tmp.sum()
+                else:
+                    s_scaled = s_log
+                    t_probs_scaled = t_probs
 
                 # forward KL on this K‑vector
                 kl = F.kl_div(
@@ -333,9 +337,15 @@ def main():
         ds = ds.map(
             lambda e: random_sampled_gsm8k_format(e, tok),
             remove_columns=original_columns,
-            load_from_cache_file=True,
+            load_from_cache_file=False,
         )
-
+    
+    print(" #### DEBUG: printing first three examples ################################")
+    for i in range(3):
+        print(ds[i]["text"])
+        print("---------------------------------------------------------------")
+    print(" ###################################################################")
+    
     ds = ds.map(
         lambda e: tokenize_function(e, tok, distillation_config["max_length"]),
         batched=True,
