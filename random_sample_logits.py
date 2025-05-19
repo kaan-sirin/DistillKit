@@ -156,6 +156,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate random sampled logits from teacher model")
     parser.add_argument("--start_idx", type=int, help="Starting index for dataset processing, overrides config")
     parser.add_argument("--num_samples", type=int, help="Number of samples to process, overrides config")
+    parser.add_argument("--tau", type=float, help="Tau value, overrides config")
+    parser.add_argument("--draws", type=int, help="Draws value, overrides config")
     args = parser.parse_args()
     
     general_config = load_config("random_sampling_config.yaml")
@@ -181,8 +183,8 @@ if __name__ == "__main__":
         start_idx=config.get("start_idx", 0),
         max_new_tokens=config["max_new_tokens"],
         batch_size=config["batch_size"],
-        draws=config["draws"],
-        tau=config["tau"],
+        draws=args.draws if args.draws is not None else config["draws"],
+        tau=args.tau if args.tau is not None else config["tau"],
         output_dir=Path(config["logits_dir"]),
         debug=True,
     )
