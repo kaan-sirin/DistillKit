@@ -20,6 +20,7 @@ from distillation_utils import (
     dailydialog_format,
     pubmedqa_format,
     random_sampled_gsm8k_format,
+    random_sampled_medqa_swe_format,
 )
 from distill_logits_final import tokenize_function
 import wandb
@@ -336,6 +337,12 @@ def main():
     elif dataset_name == "openai/gsm8k":
         ds = ds.map(
             lambda e: random_sampled_gsm8k_format(e, tok),
+            remove_columns=original_columns,
+            load_from_cache_file=False,
+        )
+    elif dataset_name == "kaans/medqa-swe-with-responses":
+        ds = ds.map(
+            lambda e: random_sampled_medqa_swe_format(e, tok),
             remove_columns=original_columns,
             load_from_cache_file=False,
         )

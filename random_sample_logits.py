@@ -96,6 +96,8 @@ def generate_and_save_random_sampled_logits(
                 prompt = (system_prompt or "") + user_prompt + end_marker
             elif dataset_name == "openai/gsm8k":
                 prompt = (system_prompt or "") + ex["question"] + end_marker
+            elif dataset_name == "kaans/medqa-swe-with-responses":
+                prompt = (system_prompt or "") + f"{ex['question']}\n\n{ex['options']}" + end_marker
             prompts.append(prompt)
 
         inp = tok(prompts, padding=True, return_tensors="pt").to(model.device)

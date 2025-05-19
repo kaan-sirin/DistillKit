@@ -113,7 +113,8 @@ def python_alpaca_format(example):
         print(f"Sample keys: {list(example.keys())}")
         print(f"Error formatting example: {e}")
         raise
-    
+
+
 def gsm8k_format(example):
     try:
         text = f"{USER_PROMPT_START}\n\n{example['question']}{USER_PROMPT_END}{ASSISTANT_PROMPT_START}\n\n{example['answer']}{ASSISTANT_PROMPT_END}"
@@ -122,7 +123,8 @@ def gsm8k_format(example):
         print(f"Sample keys: {list(example.keys())}")
         print(f"Error formatting example: {e}")
         raise
-    
+
+
 def random_sampled_gsm8k_format(example, tokenizer):
     try:
         decoded_output = decode_sparse_sequence(example["sparse_logits"], tokenizer)
@@ -132,7 +134,19 @@ def random_sampled_gsm8k_format(example, tokenizer):
         print(f"Sample keys: {list(example.keys())}")
         print(f"Error formatting example: {e}")
         raise
-    
+
+
+def random_sampled_medqa_swe_format(example, tokenizer):
+    try:
+        decoded_output = decode_sparse_sequence(example["sparse_logits"], tokenizer)
+        text = f"{USER_PROMPT_START}\n\n{example['question']}\n\n{example['options']}{USER_PROMPT_END}{decoded_output}"
+        return {"text": text}
+    except Exception as e:
+        print(f"Sample keys: {list(example.keys())}")
+        print(f"Error formatting example: {e}")
+        raise
+
+
 def magpie_format(example):
     try:
         text = f"{USER_PROMPT_START}\n\n{example['instruction']}{USER_PROMPT_END}{ASSISTANT_PROMPT_START}\n\n{example['response']}{ASSISTANT_PROMPT_END}"
@@ -179,7 +193,7 @@ def reverse_kld(student_logits, teacher_logits, reduction="none"):
 
     # Return per-element KLD without summing over vocabulary dimension
     per_element_kld = ps * (log_ps - log_pt)
-    
+
     if reduction == "none":
         return per_element_kld
     elif reduction == "mean":

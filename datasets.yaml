@@ -30,3 +30,7 @@ openai/gsm8k:
 nicher92/magpie_llama70b_260k_filtered_swedish:
   split: train
   format_function: magpie_format
+
+kaans/medqa-swe-with-responses:
+  split: train
+  format_function: random_sampled_medqa_swe_format
