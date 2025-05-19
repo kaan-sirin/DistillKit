@@ -62,16 +62,14 @@ if __name__ == "__main__":
     #     exit()
 
     
+    
+    
     paths = [
-        "teacher_random_logits_0-1599_R1000000_tau0.8.pt",
-        "teacher_random_logits_1600-3199_R1000000_tau0.8.pt",
-        "teacher_random_logits_3200-4799_R1000000_tau0.8.pt",
-        "teacher_random_logits_4800-6399_R1000000_tau0.8.pt",
-        "teacher_random_logits_6400-7472_R1000000_tau0.8.pt",
+        "teacher_random_logits_0-399_R50000_tau0.8.pt",
+        "teacher_random_logits_400-799_R50000_tau0.8.pt",
+        "teacher_random_logits_800-1199_R50000_tau0.8.pt",
+        "teacher_random_logits_1200-1599_R50000_tau0.8.pt",
     ]
-
-
-
 
     paths = [
         f"/leonardo_work/EUHPC_D17_084/DistillKit/generated_tokens/gsm8k/{path}"
