@@ -12,7 +12,7 @@ output_generation:
   logits_dir: generated_tokens/gsm8k/
 distillation:
   student: meta-llama/Llama-3.1-8B-Instruct
-  logits_path: /leonardo_work/EUHPC_D17_084/DistillKit/generated_tokens/gsm8k/combined_sparse_logits_7473.pt
+  logits_path: /leonardo_work/EUHPC_D17_084/DistillKit/generated_tokens/gsm8k/combined_sparse_logits_1600.pt
   max_length: 1024
   use_flash_attention: false 
   temperature: 1.0
