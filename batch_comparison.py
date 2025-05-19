@@ -94,7 +94,7 @@ Nice-to-have reference statements:
         examples = [
             {
                 "prompt": f"{x['question']}\n\n{x['options']}",
-                "reference_answer": x["model_response"],
+                "reference_answer": x["answer"],
             }
             for x in examples
         ]
