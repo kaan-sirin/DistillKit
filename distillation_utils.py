@@ -170,29 +170,28 @@ def tokenize_function(examples, tokenizer, max_length):
     )
 
 
-def reverse_kld(student_logits, teacher_logits, reduction="per_token"):
+def reverse_kld(student_logits, teacher_logits, reduction="none"):
     log_ps = F.log_softmax(student_logits, dim=-1)
     ps = log_ps.exp()  # p_s
 
     with torch.no_grad():
         log_pt = F.log_softmax(teacher_logits, dim=-1)  # log p_t
 
-    per_token_kld = (ps * (log_ps - log_pt)).sum(
-        dim=-1
-    )  # shape will be (batch_size, seq_len)
-
+    # Return per-element KLD without summing over vocabulary dimension
+    per_element_kld = ps * (log_ps - log_pt)
+    
     if reduction == "none":
-        return per_token_kld
+        return per_element_kld
     elif reduction == "mean":
-        # average over all tokens in the batch
-        return per_token_kld.mean()
+        # average over all elements in the batch
+        return per_element_kld.mean()
     elif reduction == "sum":
-        # sum over all tokens in the batch
-        return per_token_kld.sum()
+        # sum over all elements in the batch
+        return per_element_kld.sum()
     elif reduction == "batchmean":
-        # sum over all tokens and divide by the batch size
+        # sum over all elements and divide by batch size
         batch_size = student_logits.shape[0]
-        return per_token_kld.sum() / batch_size
+        return per_element_kld.sum() / batch_size
     else:
         raise ValueError(
             f"Invalid reduction type: {reduction}. Choose from 'none', 'mean', 'sum', 'batchmean'."
