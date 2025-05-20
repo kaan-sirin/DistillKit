@@ -61,18 +61,25 @@ if __name__ == "__main__":
     #         print(tokenizer.decode(step[0][0]), end="")
     #     exit()
 
-    
-    
-    
     paths = [
-        "teacher_random_logits_0-399_R50000_tau0.8.pt",
-        "teacher_random_logits_400-799_R50000_tau0.8.pt",
-        "teacher_random_logits_800-1199_R50000_tau0.8.pt",
-        "teacher_random_logits_1200-1599_R50000_tau0.8.pt",
+        "teacher_random_logits_0-599_R50000_tau1.0.pt",
+        "teacher_random_logits_600-799_R50000_tau1.0.pt",
+        "teacher_random_logits_800-999_R50000_tau1.0.pt",
+        "teacher_random_logits_1000-1199_R50000_tau1.0.pt",
+        "teacher_random_logits_1200-1799_R50000_tau1.0.pt",
+        "teacher_random_logits_1800-2399_R50000_tau1.0.pt",
+        "teacher_random_logits_2400-2999_R50000_tau1.0.pt",
     ]
 
+    # paths = [
+    #     "teacher_random_logits_0-399_R50000_tau0.8.pt",
+    #     "teacher_random_logits_400-799_R50000_tau0.8.pt",
+    #     "teacher_random_logits_800-1199_R50000_tau0.8.pt",
+    #     "teacher_random_logits_1200-1599_R50000_tau0.8.pt",
+    # ]
+
     paths = [
-        f"/leonardo_work/EUHPC_D17_084/DistillKit/generated_tokens/gsm8k/{path}"
+        f"/leonardo_work/EUHPC_D17_084/DistillKit/generated_tokens/medqa_swe/{path}"
         for path in paths
     ]
 
