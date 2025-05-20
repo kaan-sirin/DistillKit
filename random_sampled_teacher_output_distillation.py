@@ -1,4 +1,5 @@
 import os, time
+import argparse
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -237,12 +238,21 @@ class SparseLogitsCollator(DefaultDataCollator):
 
 # --------------------------------------------------------------------------- #
 def main():
+    parser = argparse.ArgumentParser(description="Train a student model with sparse logit distillation")
+    parser.add_argument("--temperature", type=float, help="Temperature for distillation, overrides config")
+    args = parser.parse_args()
+    
     load_dotenv()
     cfg = load_config("random_sampling_config.yaml")
     dataset_name = cfg["dataset"]["name"]
     num_samples = cfg["dataset"].get("num_samples", None)
     dataset_config = load_config("datasets.yaml")[dataset_name]
     distillation_config = cfg["distillation"]
+    
+    # Override temperature if provided as argument
+    if args.temperature is not None:
+        print(f"Overriding temperature from config ({distillation_config['temperature']}) with command line value: {args.temperature}")
+        distillation_config["temperature"] = args.temperature
 
     token = os.getenv("HF_TOKEN")
     accel = Accelerator(mixed_precision="bf16")
