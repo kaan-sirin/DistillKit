@@ -262,7 +262,7 @@ def main():
     if num_samples is not None:
         group_name += f"{num_samples}s_"
     group_name += (
-        f"{cfg['training']['num_train_epochs']}e_{time.strftime('%m_%d_%H_%M')}"
+        f"{cfg['training']['num_train_epochs']}e_{distillation_config['temperature']}T_{time.strftime('%m_%d_%H_%M')}"
     )
 
     run_name = f"process_{accel.process_index}_{time.strftime('%m_%d_%H_%M')}"
