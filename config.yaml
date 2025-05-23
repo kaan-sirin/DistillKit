@@ -1,7 +1,7 @@
 project_name: swedish-distillation
 dataset:
   name: nicher92/magpie_llama70b_260k_filtered_swedish
-  num_samples: 960
+  num_samples: 20000
   test_size: 0.1
 models:
   teacher: meta-llama/Llama-3.1-8B-Instruct
@@ -31,10 +31,10 @@ training:
   greater_is_better: false
   early_stopping_patience: 2
 distillation:
-  temperature: 1.0 
+  temperature: 2.0 
   alpha: 0.5
   method: logit_distillation
-  kl_divergence: reverse
+  kl_divergence: forward
 model_config:
   use_flash_attention: false
 # spectrum:
