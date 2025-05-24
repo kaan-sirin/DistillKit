@@ -25,6 +25,7 @@ def generate_responses(
         outputs = model.generate(
             **batch_inputs,
             max_new_tokens=max_new_tokens,
+            min_new_tokens=1,
             do_sample=False,
             num_beams=1,
             top_p=1.0,
@@ -197,49 +198,86 @@ def ask_model_question(
 
 
 if __name__ == "__main__":
-    general_config = load_config("random_sampling_config.yaml")
-    output_generation_config = general_config["output_generation"]
-    dataset_name = general_config["dataset"]['name']
-    num_samples = general_config["dataset"].get("num_samples", None)
-    dataset_config = load_config("datasets.yaml")[dataset_name]
     
-    random.seed(42)
+    questions = [
+        "Generate a sentence that uses the phrase “leap of faith”.",
+    ]
     
-    parser = argparse.ArgumentParser(description="Evaluate a model on a dataset")
-    parser.add_argument("--model_path", type=str, help="Model path")
-    parser.add_argument("--num_samples", type=int, help="Number of samples to process")
-    parser.add_argument("--random_sampling", type=bool, default=False, help="Random sampling")
-    parser.add_argument("--start_index", type=int, default=0, help="Starting index for dataset processing")
-    parser.add_argument("--batch_size", type=int, help="Batch size")
-    parser.add_argument("--enable_logging", type=bool, default=False, help="Enable logging")
+    model_paths = [
+        ("results/top_k_forward_alpaca_320_samples_3_epochs_3_top_96_04_24_13-14", "Top K Forward"),
+        ("results/top_k_reverse_alpaca_320_samples_3_epochs_3_top_96_04_24_12-30", "Top K Reverse"),
+        ("results/sparse_kd_student_20250422_114315_final_10000", "Random Sampling")
+    ]
+
+    # Create output files for each model
+    output_files = {
+        "Top K Forward": open("top_k_forward_responses.txt", "w"),
+        "Top K Reverse": open("top_k_reverse_responses.txt", "w"),
+        "Random Sampling": open("random_sampling_responses.txt", "w")
+    }
+
+    # Process each question for each model
+    for question in questions:
+        for model_path, model_name in model_paths:
+            response = ask_model_question(
+                model_name=model_path,
+                question=question,
+                enable_logging=True
+            )
+            
+            # Write to corresponding file
+            output_files[model_name].write(f"Question: {question}\n")
+            output_files[model_name].write(f"Response: {response}\n")
+            output_files[model_name].write("-" * 80 + "\n\n")
+
+    # Close all files
+    for file in output_files.values():
+        file.close()
     
-    args = parser.parse_args()
+    
+    # general_config = load_config("random_sampling_config.yaml")
+    # output_generation_config = general_config["output_generation"]
+    # dataset_name = general_config["dataset"]['name']
+    # num_samples = general_config["dataset"].get("num_samples", None)
+    # dataset_config = load_config("datasets.yaml")[dataset_name]
+    
+    # random.seed(42)
+    
+    # parser = argparse.ArgumentParser(description="Evaluate a model on a dataset")
+    # parser.add_argument("--model_path", type=str, help="Model path")
+    # parser.add_argument("--num_samples", type=int, help="Number of samples to process")
+    # parser.add_argument("--random_sampling", type=bool, default=False, help="Random sampling")
+    # parser.add_argument("--start_index", type=int, default=0, help="Starting index for dataset processing")
+    # parser.add_argument("--batch_size", type=int, help="Batch size")
+    # parser.add_argument("--enable_logging", type=bool, default=False, help="Enable logging")
+    
+    # args = parser.parse_args()
     
 
-    if args.model_path is not None:
-        output_generation_config["model"] = args.model_path
-    if args.batch_size is not None:
-        output_generation_config["batch_size"] = args.batch_size
+    # if args.model_path is not None:
+    #     output_generation_config["model"] = args.model_path
+    # if args.batch_size is not None:
+    #     output_generation_config["batch_size"] = args.batch_size
     
-    if args.num_samples is not None:
-        num_samples = args.num_samples
-    elif num_samples is not None:
-        num_samples = num_samples
-    else:
-        num_samples = 100
+    # if args.num_samples is not None:
+    #     num_samples = args.num_samples
+    # elif num_samples is not None:
+    #     num_samples = num_samples
+    # else:
+    #     num_samples = 100
     
-    timestamp = datetime.now().strftime("%m%d_%H%M%S")
-    evaluate_model(
-        model_path=output_generation_config["model"],
-        dataset_name=dataset_name,
-        dataset_subset=dataset_config.get("subset", None),
-        dataset_split=dataset_config.get("split", "train"),
-        num_samples=num_samples,
-        random_sampling=args.random_sampling,
-        start_index=args.start_index,
-        max_new_tokens=output_generation_config["max_new_tokens"],
-        batch_size=output_generation_config["batch_size"],
-        output_filename=f"{num_samples}_generations_{timestamp}",
-        enable_logging=args.enable_logging
-    )
+    # timestamp = datetime.now().strftime("%m%d_%H%M%S")
+    # evaluate_model(
+    #     model_path=output_generation_config["model"],
+    #     dataset_name=dataset_name,
+    #     dataset_subset=dataset_config.get("subset", None),
+    #     dataset_split=dataset_config.get("split", "train"),
+    #     num_samples=num_samples,
+    #     random_sampling=args.random_sampling,
+    #     start_index=args.start_index,
+    #     max_new_tokens=output_generation_config["max_new_tokens"],
+    #     batch_size=output_generation_config["batch_size"],
+    #     output_filename=f"{num_samples}_generations_{timestamp}",
+    #     enable_logging=args.enable_logging
+    # )
     
