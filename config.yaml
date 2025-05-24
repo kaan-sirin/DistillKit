@@ -31,10 +31,10 @@ training:
   greater_is_better: false
   early_stopping_patience: 2
 distillation:
-  temperature: 2.0 
+  temperature: 1.0 
   alpha: 0.5
   method: logit_distillation
-  kl_divergence: forward
+  kl_divergence: reverse
 model_config:
   use_flash_attention: false
 # spectrum:
